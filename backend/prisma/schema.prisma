@@ -1,0 +1,108 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Listing {
+  id                String   @id @default(cuid())
+  hostawayListingId String   @unique @map("hostaway_listing_id")
+  name             String
+  slug             String   @unique
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  reviews Review[]
+
+  // Indexes for performance
+  @@index([hostawayListingId])
+  @@index([slug])
+  @@index([createdAt])
+  @@map("listings")
+}
+
+model Review {
+  id             String      @id @default(cuid())
+  hostawayReviewId String    @unique @map("hostaway_review_id")
+  listingId      String      @map("listing_id")
+  reviewType     ReviewType  @map("review_type")
+  channel        Channel
+  rating         Float
+  publicReview   String?     @map("public_review") @db.Text
+  guestName      String      @map("guest_name")
+  submittedAt    DateTime    @map("submitted_at")
+  approved       Boolean     @default(false)
+  rawJson        Json?       @map("raw_json")
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+
+  // Relations
+  listing         Listing           @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  reviewCategories ReviewCategory[]
+
+  // Indexes for performance
+  @@index([listingId])
+  @@index([approved])
+  @@index([submittedAt])
+  @@index([channel])
+  @@index([rating])
+  @@index([reviewType])
+  @@index([hostawayReviewId])
+  @@map("reviews")
+}
+
+model ReviewCategory {
+  id       String   @id @default(cuid())
+  reviewId String   @map("review_id")
+  category Category
+  rating   Float
+
+  // Relations
+  review Review @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  // Composite unique constraint to prevent duplicate categories per review
+  @@unique([reviewId, category])
+  
+  // Indexes for performance
+  @@index([reviewId])
+  @@index([category])
+  @@index([rating])
+  @@map("review_categories")
+}
+
+// Enums
+enum ReviewType {
+  GUEST_REVIEW
+  HOST_REVIEW
+  
+  @@map("review_type")
+}
+
+enum Channel {
+  AIRBNB
+  VRBO
+  BOOKING_COM
+  GOOGLE
+  DIRECT
+  
+  @@map("channel")
+}
+
+enum Category {
+  CLEANLINESS
+  COMMUNICATION
+  CHECK_IN
+  ACCURACY
+  LOCATION
+  VALUE
+  OVERALL
+  
+  @@map("category")
+}

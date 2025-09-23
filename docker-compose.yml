@@ -1,0 +1,101 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: flexliving-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: flexliving_reviews
+      POSTGRES_USER: flexliving
+      POSTGRES_PASSWORD: password
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=scram-sha-256"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - flexliving-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flexliving -d flexliving_reviews"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: flexliving-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - flexliving-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Backend Application
+  app:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: development
+    container_name: flexliving-app
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgresql://flexliving:password@db:5432/flexliving_reviews?schema=public
+      REDIS_URL: redis://redis:6379
+      PORT: 4000
+      HOST: 0.0.0.0
+      LOG_LEVEL: debug
+      FRONTEND_URL: http://localhost:3000
+    ports:
+      - "4000:4000"
+    volumes:
+      # Mount source code for hot reload in development
+      - ./backend/src:/app/src:ro
+      - ./backend/prisma:/app/prisma:ro
+      - ./backend/package.json:/app/package.json:ro
+      - ./backend/tsconfig.json:/app/tsconfig.json:ro
+      - ./backend/.eslintrc.js:/app/.eslintrc.js:ro
+      - ./backend/.prettierrc:/app/.prettierrc:ro
+      # Exclude node_modules to prevent conflicts
+      - /app/node_modules
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - flexliving-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:4000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+# Named Volumes for Data Persistence
+volumes:
+  postgres_data:
+    driver: local
+    name: flexliving-postgres-data
+  redis_data:
+    driver: local
+    name: flexliving-redis-data
+
+# Custom Network
+networks:
+  flexliving-network:
+    driver: bridge
+    name: flexliving-network

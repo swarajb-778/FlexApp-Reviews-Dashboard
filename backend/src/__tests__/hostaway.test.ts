@@ -59,6 +59,37 @@ describe('Hostaway API Integration Tests', () => {
   });
 
   describe('GET /api/reviews/hostaway', () => {
+    it('should return requirement simple format when format=simple is used', async () => {
+      mockedGetCache.mockResolvedValue(null);
+      mockedFetchReviewsWithSource.mockResolvedValue({
+        response: mockHostawayResponse,
+        source: 'hostaway'
+      });
+      mockedSetCache.mockResolvedValue(true);
+
+      const response = await request(app)
+        .get('/api/reviews/hostaway')
+        .query({ format: 'simple', page: 1, limit: 5 })
+        .expect(200);
+
+      expect(response.body.status).toBe('ok');
+      expect(Array.isArray(response.body.data)).toBe(true);
+      if (response.body.data.length > 0) {
+        const item = response.body.data[0];
+        expect(item).toHaveProperty('id');
+        expect(item).toHaveProperty('hostawayId');
+        expect(item).toHaveProperty('listingName');
+        expect(item).toHaveProperty('listingId');
+        expect(item).toHaveProperty('type');
+        expect(item).toHaveProperty('channel');
+        expect(item).toHaveProperty('rating');
+        expect(item).toHaveProperty('categories');
+        expect(item).toHaveProperty('publicReview');
+        expect(item).toHaveProperty('guestName');
+        expect(item).toHaveProperty('submittedAt');
+        expect(item).toHaveProperty('approved');
+      }
+    });
     const mockHostawayResponse: HostawayApiResponse = {
       status: 'success',
       result: [

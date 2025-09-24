@@ -58,7 +58,7 @@ services:
       PORT: 3001
       HOST: 0.0.0.0
       LOG_LEVEL: debug
-      FRONTEND_URL: http://localhost:3000
+      CORS_ORIGIN: http://localhost:3000
     ports:
       - "3001:3001"
     volumes:
@@ -67,8 +67,6 @@ services:
       - ./backend/prisma:/app/prisma:ro
       - ./backend/package.json:/app/package.json:ro
       - ./backend/tsconfig.json:/app/tsconfig.json:ro
-      - ./backend/.eslintrc.js:/app/.eslintrc.js:ro
-      - ./backend/.prettierrc:/app/.prettierrc:ro
       # Exclude node_modules to prevent conflicts
       - /app/node_modules
     depends_on:
@@ -108,8 +106,6 @@ services:
       - ./frontend/tsconfig.json:/app/tsconfig.json:ro
       - ./frontend/tailwind.config.ts:/app/tailwind.config.ts:ro
       - ./frontend/next.config.js:/app/next.config.js:ro
-      - ./frontend/.eslintrc.json:/app/.eslintrc.json:ro
-      - ./frontend/.prettierrc:/app/.prettierrc:ro
       # Exclude node_modules and .next to prevent conflicts
       - /app/node_modules
       - /app/.next

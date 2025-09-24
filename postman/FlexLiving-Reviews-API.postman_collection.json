@@ -871,6 +871,30 @@
 		{
 			"name": "Hostaway Integration",
 			"item": [
+        {
+          "name": "GET /api/reviews/hostaway (simple format)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reviews/hostaway?format=simple&page=1&limit=5",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reviews",
+                "hostaway"
+              ],
+              "query": [
+                {"key": "format", "value": "simple"},
+                {"key": "page", "value": "1"},
+                {"key": "limit", "value": "5"}
+              ]
+            }
+          },
+          "response": []
+        },
 				{
 					"name": "Import Listings from Hostaway",
 					"event": [

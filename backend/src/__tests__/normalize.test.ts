@@ -318,6 +318,51 @@ describe('Normalize Service', () => {
       expect(normalized).toBeTruthy();
       expect(normalized!.guestName).toBe('Anonymous Guest');
     });
+
+    it('should handle empty categories array and still normalize', async () => {
+      const rawReview: HostawayReviewRaw = {
+        id: 60001,
+        listingId: 111,
+        guestName: 'No Cats',
+        comment: 'No categories provided',
+        rating: 7.5,
+        reviewCategories: [],
+        createdAt: '2021/02/03 08:15:00',
+        updatedAt: '2021/02/03 08:15:00',
+        reviewType: 'guest_review',
+        channel: 'booking.com',
+        approved: true
+      };
+
+      const normalized = await normalizeReview(rawReview);
+      expect(normalized).toBeTruthy();
+      expect(normalized!.rating).toBe(7.5);
+      expect(normalized!.categories).toEqual({});
+      expect(normalized!.createdAt).toMatch(/Z$/);
+    });
+
+    it('should compute rating from categories when rating missing', async () => {
+      const rawReview: HostawayReviewRaw = {
+        id: 60002,
+        listingId: 111,
+        guestName: 'Missing Rating',
+        comment: 'Categories present',
+        reviewCategories: [
+          { id: 1, name: 'cleanliness', rating: 8, max_rating: 10 },
+          { id: 2, name: 'communication', rating: 9, max_rating: 10 }
+        ],
+        createdAt: '2021-03-01 10:00:00',
+        updatedAt: '2021-03-01 10:00:00',
+        reviewType: 'guest_review',
+        channel: 'airbnb',
+        approved: false
+      } as any;
+
+      const normalized = await normalizeReview(rawReview);
+      expect(normalized).toBeTruthy();
+      expect(normalized!.rating).toBe(8.5);
+      expect(normalized!.categories).toEqual({ cleanliness: 8, communication: 9 });
+    });
   });
 
   describe('normalizeReviews', () => {

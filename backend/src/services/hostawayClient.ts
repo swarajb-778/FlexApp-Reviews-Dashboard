@@ -76,6 +76,16 @@ export function initializeHostawayClient(config: Partial<HostawayConfig> = {}): 
     validateStatus: (status) => status < 500 // Don't throw on 4xx errors
   });
 
+  // Basic config validation
+  if (!clientConfig.mockMode) {
+    if (!clientConfig.apiKey || clientConfig.apiKey.length < 20) {
+      logger.warn('Hostaway API key appears invalid or missing. Falling back to mock when used.');
+    }
+    if (!clientConfig.accountId) {
+      logger.warn('Hostaway account ID missing. Ensure HOSTAWAY_ACCOUNT_ID is set.');
+    }
+  }
+
   // Request interceptor for logging and metrics
   hostawayClient.interceptors.request.use(
     (config) => {
@@ -118,6 +128,16 @@ export function initializeHostawayClient(config: Partial<HostawayConfig> = {}): 
         error: error.message
       });
       
+      // Apply simple retry if network or timeout
+      const isNetworkError = !error.response;
+      const status = error.response?.status;
+      if (isNetworkError || status === 408) {
+        error.config.__retryCount = (error.config.__retryCount || 0) + 1;
+        if (error.config.__retryCount <= DEFAULT_HOSTAWAY_CONFIG.retries) {
+          const backoff = Math.pow(2, error.config.__retryCount) * 250;
+          return new Promise((resolve) => setTimeout(resolve, backoff)).then(() => hostawayClient!.request(error.config));
+        }
+      }
       return Promise.reject(error);
     }
   );

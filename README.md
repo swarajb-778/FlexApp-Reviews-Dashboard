@@ -504,27 +504,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **The Open Source Community** for the amazing tools and libraries
 - **FlexLiving Team** for their continuous feedback and support
 
-## 📞 Support
-
-### Community Support
-- **GitHub Discussions**: [GitHub Discussions](https://github.com/flexliving/reviews-dashboard/discussions)
-- **Stack Overflow**: Tag questions with `flexliving-reviews`
-
-### Commercial Support
-- **Email**: [support@flexliving.com](mailto:support@flexliving.com)
-- **Documentation**: [https://docs.flexliving.com](https://docs.flexliving.com)
-- **Status Page**: [https://status.flexliving.com](https://status.flexliving.com)
-
-### Emergency Support
-- **Critical Issues**: [emergency@flexliving.com](mailto:emergency@flexliving.com)
-- **Phone**: +1-800-FLEX-LIVE (24/7 for production issues)
-
----
-
-<div align="center">
-
-**Built with ❤️ by the FlexLiving Team**
-
-[Website](https://flexliving.com) • [Documentation](https://docs.flexliving.com) • [API Status](https://status.flexliving.com)
-
 </div>

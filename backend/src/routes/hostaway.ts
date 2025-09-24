@@ -106,7 +106,7 @@ router.get('/', async (req: Request, res: Response) => {
       if (useSimpleFormat) {
         return res.json({
           status: 'ok',
-          data: cachedResponse.response.data.reviews
+          data: cachedResponse.response.data.reviews.map(mapToRequirementSimpleFormat)
         });
       }
       
@@ -198,7 +198,7 @@ router.get('/', async (req: Request, res: Response) => {
       // Simple format for compatibility with requirement.md
       apiResponse = {
         status: 'ok',
-        data: paginatedReviews
+        data: paginatedReviews.map(mapToRequirementSimpleFormat)
       };
     } else {
       // Full format with comprehensive metadata
@@ -471,3 +471,29 @@ router.use((error: Error, req: Request, res: Response, next: any) => {
 });
 
 export default router;
+
+/**
+ * Maps our NormalizedReview to the exact simple JSON shape required in requirement.md
+ */
+function mapToRequirementSimpleFormat(review: NormalizedReview) {
+  const type = review.reviewType === 'host_review'
+    ? 'host-to-guest'
+    : review.reviewType === 'guest_review'
+      ? 'guest-to-host'
+      : review.reviewType.replace(/_/g, '-');
+
+  return {
+    id: review.id,
+    hostawayId: review.id,
+    listingName: (review as any)?.rawJson?.listingName || null,
+    listingId: review.listingId,
+    type,
+    channel: 'hostaway',
+    rating: review.rating,
+    categories: review.categories,
+    publicReview: review.comment,
+    guestName: review.guestName,
+    submittedAt: review.createdAt,
+    approved: review.approved
+  };
+}

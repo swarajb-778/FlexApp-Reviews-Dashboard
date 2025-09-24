@@ -225,11 +225,12 @@ export default function PropertyPage({ params }: PropertyPageProps) {
 
   const filteredReviews = useMemo(() => {
     if (!reviews) return [];
+    const approvedOnly = reviews.filter(r => (r as any).approved === true);
     
     // Helper function for safe date conversion with fallback
     const toMs = (d?: string) => d ? new Date(d).getTime() : 0;
     
-    return reviews.filter(review => {
+    return approvedOnly.filter(review => {
       if (reviewFilters.rating && review.overall_rating !== reviewFilters.rating) return false;
       if (reviewFilters.searchQuery) {
         const query = reviewFilters.searchQuery.toLowerCase();

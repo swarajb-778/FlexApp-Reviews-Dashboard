@@ -895,6 +895,34 @@
           },
           "response": []
         },
+        {
+          "name": "GET /api/reviews/hostaway (filters)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/reviews/hostaway?listingId=1234&from=2020-01-01&to=2025-01-01&channel=airbnb&approved=true&page=1&limit=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "reviews",
+                "hostaway"
+              ],
+              "query": [
+                {"key": "listingId", "value": "1234"},
+                {"key": "from", "value": "2020-01-01"},
+                {"key": "to", "value": "2025-01-01"},
+                {"key": "channel", "value": "airbnb"},
+                {"key": "approved", "value": "true"},
+                {"key": "page", "value": "1"},
+                {"key": "limit", "value": "10"}
+              ]
+            }
+          },
+          "response": []
+        },
 				{
 					"name": "Import Listings from Hostaway",
 					"event": [

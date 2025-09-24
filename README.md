@@ -125,8 +125,8 @@ graph TB
 
 2. **Run automated setup**
    ```bash
-   chmod +x scripts/setup.sh
-   ./scripts/setup.sh
+   chmod +x scripts/setup-dev.sh
+   ./scripts/setup-dev.sh
    ```
 
 3. **Configure environment variables**
@@ -140,7 +140,7 @@ graph TB
 
 4. **Start development servers**
    ```bash
-   ./start-dev.sh
+   docker-compose up -d
    ```
 
 5. **Access the application**
@@ -329,8 +329,8 @@ cd backend && npm run test
 # Frontend tests
 cd frontend && npm run test
 
-# Integration tests
-./scripts/run-tests.sh
+# API smoke tests
+./scripts/test-api.sh
 
 # Performance tests
 cd backend && npm run test:performance
@@ -355,6 +355,8 @@ open coverage/lcov-report/index.html
 2. Set up environment: `postman/environments/development.postman_environment.json`
 3. Configure your API keys and tokens
 4. Run the complete test suite
+5. Try the mandatory Hostaway endpoint (simple format)
+   - Request: "GET /api/reviews/hostaway (simple format)"
 
 ## 📊 Monitoring & Observability
 

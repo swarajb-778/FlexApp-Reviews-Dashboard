@@ -449,6 +449,7 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 - **Architecture Diagrams**: [docs/architecture/](docs/architecture/)
 - **Database Schema**: [backend/prisma/schema.prisma](backend/prisma/schema.prisma)
 
+
 ## 🎯 Roadmap
 
 ### Version 2.0 (Q2 2024)

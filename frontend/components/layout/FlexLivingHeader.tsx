@@ -136,6 +136,19 @@ export function FlexLivingHeader() {
           </div>
         </div>
 
+        {/* Primary Navigation */}
+        <nav className="hidden md:flex items-center space-x-6">
+          <Link href="/properties" className="text-sm font-medium hover:text-primary transition-colors">
+            All listings
+          </Link>
+          <Link href="/about" className="text-sm font-medium hover:text-primary transition-colors">
+            About Us
+          </Link>
+          <Link href="/contact" className="text-sm font-medium hover:text-primary transition-colors">
+            Contact
+          </Link>
+        </nav>
+
         {/* Search Bar */}
         <div className="flex-1 max-w-md mx-4 hidden md:block">
           <form onSubmit={handleSearch}>
@@ -313,6 +326,24 @@ export function FlexLivingHeader() {
 
             {/* Mobile Navigation Links */}
             <div className="space-y-2">
+              <Button variant="ghost" className="w-full justify-start" asChild>
+                <Link href="/properties">
+                  <Activity className="h-4 w-4 mr-2" />
+                  All listings
+                </Link>
+              </Button>
+              <Button variant="ghost" className="w-full justify-start" asChild>
+                <Link href="/about">
+                  <Shield className="h-4 w-4 mr-2" />
+                  About Us
+                </Link>
+              </Button>
+              <Button variant="ghost" className="w-full justify-start" asChild>
+                <Link href="/contact">
+                  <MessageSquare className="h-4 w-4 mr-2" />
+                  Contact
+                </Link>
+              </Button>
               <Button variant="ghost" className="w-full justify-start" asChild>
                 <Link href="/dashboard">
                   <Activity className="h-4 w-4 mr-2" />

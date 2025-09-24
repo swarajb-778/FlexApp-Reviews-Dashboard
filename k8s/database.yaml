@@ -1,0 +1,432 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: flexliving-reviews
+  labels:
+    app: postgres
+    component: database
+    tier: data
+    app.kubernetes.io/name: flexliving-reviews-dashboard
+    app.kubernetes.io/component: database
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    description: "PostgreSQL database for FlexLiving Reviews Dashboard"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate  # Database requires Recreate strategy
+  selector:
+    matchLabels:
+      app: postgres
+      component: database
+  template:
+    metadata:
+      labels:
+        app: postgres
+        component: database
+        tier: data
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9187"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: flexliving-reviews-sa
+      
+      # Security Context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        imagePullPolicy: Always
+        
+        ports:
+        - name: postgres
+          containerPort: 5432
+          protocol: TCP
+        
+        # Environment Variables
+        env:
+        - name: POSTGRES_DB
+          valueFrom:
+            configMapKeyRef:
+              name: flexliving-reviews-config
+              key: postgres-db
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: flexliving-reviews-secrets
+              key: postgres-user
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: flexliving-reviews-secrets
+              key: postgres-password
+        - name: PGDATA
+          value: "/var/lib/postgresql/data/pgdata"
+        - name: POSTGRES_INITDB_ARGS
+          value: "--auth-host=md5"
+        
+        # Health Checks
+        livenessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - exec pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" -h 127.0.0.1 -p 5432
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        
+        readinessProbe:
+          exec:
+            command:
+            - /bin/sh
+            - -c
+            - exec pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" -h 127.0.0.1 -p 5432
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        # Resource Requirements
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+            ephemeral-storage: 1Gi
+          limits:
+            cpu: 1
+            memory: 1Gi
+            ephemeral-storage: 2Gi
+        
+        # Security Context
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 999
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        
+        # Volume Mounts
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        - name: postgres-config
+          mountPath: /etc/postgresql/postgresql.conf
+          subPath: postgresql.conf
+          readOnly: true
+        - name: postgres-initdb
+          mountPath: /docker-entrypoint-initdb.d
+          readOnly: true
+      
+      # PostgreSQL Exporter for Prometheus
+      - name: postgres-exporter
+        image: prometheuscommunity/postgres-exporter:latest
+        ports:
+        - name: metrics
+          containerPort: 9187
+          protocol: TCP
+        
+        env:
+        - name: DATA_SOURCE_NAME
+          valueFrom:
+            secretKeyRef:
+              name: flexliving-reviews-secrets
+              key: postgres-exporter-dsn
+        
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+        
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65534
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      
+      # Volumes
+      volumes:
+      - name: postgres-storage
+        persistentVolumeClaim:
+          claimName: postgres-pvc
+      - name: postgres-config
+        configMap:
+          name: postgres-config
+      - name: postgres-initdb
+        configMap:
+          name: postgres-initdb
+          defaultMode: 0755
+      
+      # Node Selection
+      nodeSelector:
+        kubernetes.io/arch: amd64
+        storage-type: ssd
+      
+      # Tolerations
+      tolerations:
+      - key: "node.kubernetes.io/unschedulable"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+        tolerationSeconds: 300
+      
+      # Affinity - prefer nodes with fast storage
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: storage-type
+                operator: In
+                values:
+                - ssd
+                - nvme
+---
+# Persistent Volume Claim for PostgreSQL
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: flexliving-reviews
+  labels:
+    app: postgres
+    component: database
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: fast-ssd
+  resources:
+    requests:
+      storage: 20Gi
+  volumeMode: Filesystem
+---
+# Service for PostgreSQL
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: flexliving-reviews
+  labels:
+    app: postgres
+    component: database
+    app.kubernetes.io/name: flexliving-reviews-dashboard
+    app.kubernetes.io/component: database
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9187"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+  - name: postgres
+    port: 5432
+    targetPort: postgres
+    protocol: TCP
+  - name: metrics
+    port: 9187
+    targetPort: metrics
+    protocol: TCP
+  selector:
+    app: postgres
+    component: database
+  clusterIP: None  # Headless service for StatefulSet-like behavior
+---
+# ConfigMap for PostgreSQL Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: flexliving-reviews
+  labels:
+    app: postgres
+    component: database
+data:
+  postgresql.conf: |
+    # Connection Settings
+    listen_addresses = '*'
+    port = 5432
+    max_connections = 100
+    
+    # Memory Settings
+    shared_buffers = 256MB
+    effective_cache_size = 1GB
+    work_mem = 4MB
+    maintenance_work_mem = 64MB
+    
+    # Checkpoint Settings  
+    checkpoint_completion_target = 0.9
+    wal_buffers = 16MB
+    default_statistics_target = 100
+    
+    # Logging
+    log_destination = 'stderr'
+    logging_collector = off
+    log_min_messages = warning
+    log_min_error_statement = error
+    log_statement = 'none'
+    
+    # Performance
+    random_page_cost = 1.1
+    effective_io_concurrency = 200
+    
+    # Security
+    ssl = off  # Handled by service mesh/ingress
+    password_encryption = md5
+---
+# ConfigMap for Database Initialization Scripts
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-initdb
+  namespace: flexliving-reviews
+  labels:
+    app: postgres
+    component: database
+data:
+  01-init-extensions.sql: |
+    -- Create extensions
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+    CREATE EXTENSION IF NOT EXISTS "pg_stat_statements";
+    
+  02-init-monitoring.sql: |
+    -- Create monitoring user for postgres exporter
+    DO $$
+    BEGIN
+        IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'postgres_exporter') THEN
+            CREATE USER postgres_exporter WITH PASSWORD 'exporter_password';
+        END IF;
+    END
+    $$;
+    
+    -- Grant permissions for monitoring
+    GRANT pg_monitor TO postgres_exporter;
+    GRANT SELECT ON pg_stat_database TO postgres_exporter;
+---
+# Backup CronJob for PostgreSQL
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: flexliving-reviews
+  labels:
+    app: postgres
+    component: database
+    job-type: backup
+spec:
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  timeZone: "UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    metadata:
+      labels:
+        app: postgres
+        component: database
+        job-type: backup
+    spec:
+      template:
+        metadata:
+          labels:
+            app: postgres
+            component: database
+            job-type: backup
+        spec:
+          serviceAccountName: flexliving-reviews-sa
+          restartPolicy: OnFailure
+          
+          containers:
+          - name: postgres-backup
+            image: postgres:15-alpine
+            
+            command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+              TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+              BACKUP_FILE="flexliving_reviews_backup_${TIMESTAMP}.sql"
+              
+              echo "Starting database backup: $BACKUP_FILE"
+              pg_dump $DATABASE_URL > /backups/$BACKUP_FILE
+              
+              # Compress backup
+              gzip /backups/$BACKUP_FILE
+              
+              # Upload to cloud storage (if configured)
+              if [ -n "$AWS_S3_BACKUP_BUCKET" ]; then
+                aws s3 cp /backups/$BACKUP_FILE.gz s3://$AWS_S3_BACKUP_BUCKET/database-backups/
+              fi
+              
+              # Clean up old local backups (keep last 7 days)
+              find /backups -name "flexliving_reviews_backup_*.sql.gz" -mtime +7 -delete
+              
+              echo "Backup completed: $BACKUP_FILE.gz"
+            
+            env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: flexliving-reviews-secrets
+                  key: database-url
+            - name: AWS_S3_BACKUP_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: flexliving-reviews-config
+                  key: backup-s3-bucket
+                  optional: true
+            
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                cpu: 500m
+                memory: 512Mi
+            
+            volumeMounts:
+            - name: backup-storage
+              mountPath: /backups
+          
+          volumes:
+          - name: backup-storage
+            persistentVolumeClaim:
+              claimName: backup-pvc
+---
+# Persistent Volume Claim for Backups
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backup-pvc
+  namespace: flexliving-reviews
+  labels:
+    app: postgres
+    component: database
+    purpose: backup
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 50Gi
+  volumeMode: Filesystem

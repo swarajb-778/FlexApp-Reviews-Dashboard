@@ -1,0 +1,112 @@
+# GitLeaks Configuration for FlexLiving Reviews Dashboard
+# This configuration defines rules for detecting secrets in the codebase
+
+title = "GitLeaks Configuration"
+
+[extend]
+# Use default rules as base
+useDefault = true
+
+[[rules]]
+# Allow test fixtures and mock data
+description = "Test fixtures and mocks"
+regex = '''(?i)(api[_-]?key|token|secret|password)\s*[=:]\s*['"](test|mock|fake|dummy|example|placeholder)[^'"]*['"]'''
+path = '''(test|__tests__|spec|mocks?|fixtures?)/.*'''
+
+[[rules]]
+# Allow development environment variables
+description = "Development environment files"
+regex = '''.*'''
+path = '''\.env\.(example|template|sample)$'''
+
+[[rules]]
+# Allow example configurations
+description = "Example and template files"
+regex = '''.*'''
+path = '''(example|template|sample|demo).*\.(json|yaml|yml|env|conf)$'''
+
+[[rules]]
+# Allow documentation files
+description = "Documentation files"
+regex = '''.*'''
+path = '''\.(md|txt|rst)$'''
+
+[allowlist]
+description = "Allowlisted files and patterns"
+
+# Allow specific test values
+regexes = [
+    # Common test values
+    "test[_-]?(secret|key|token|password)",
+    "fake[_-]?(secret|key|token|password)", 
+    "mock[_-]?(secret|key|token|password)",
+    "dummy[_-]?(secret|key|token|password)",
+    "example[_-]?(secret|key|token|password)",
+    
+    # UUID patterns that might look like secrets
+    "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+    
+    # Base64 encoded test data (common in tests)
+    "dGVzdA==",
+    "bW9jaw==",
+    "ZXhhbXBsZQ==",
+    
+    # Common placeholder values
+    "your[_-]?(api[_-]?key|secret|token)",
+    "replace[_-]?with[_-]?actual",
+    "insert[_-]?(your|actual|real)[_-]?(key|secret|token)",
+    
+    # Development/localhost URLs
+    "localhost:\\d+",
+    "127\\.0\\.0\\.1",
+    "0\\.0\\.0\\.0",
+    
+    # Common test database URLs
+    "postgresql://test:",
+    "postgres://test:",
+    "redis://localhost",
+    
+    # Package-lock.json integrity hashes
+    "integrity.*sha\\d+-",
+    
+    # Git commit hashes
+    "[0-9a-f]{40}",
+    
+    # Docker image hashes
+    "sha256:[0-9a-f]{64}",
+]
+
+# Allow specific files
+paths = [
+    ".env.example",
+    ".env.template", 
+    ".env.sample",
+    "package-lock.json",
+    "yarn.lock",
+    "poetry.lock",
+    "Pipfile.lock",
+    "composer.lock",
+    "go.sum",
+    "**/test/**",
+    "**/tests/**",
+    "**/__tests__/**",
+    "**/spec/**",
+    "**/mocks/**",
+    "**/fixtures/**",
+    "**/*.test.*",
+    "**/*.spec.*",
+    "**/*.mock.*",
+    "**/README.md",
+    "**/*.md",
+    "**/docs/**",
+    "**/*.example.*",
+    "**/*.template.*",
+    "**/*.sample.*",
+]
+
+# Entropy configuration
+[allowlist.entropy]
+# Allow higher entropy in test files and documentation
+Min = "4.5"
+Max = "7.0"
+Group = "1"

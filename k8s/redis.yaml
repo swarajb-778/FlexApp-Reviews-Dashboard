@@ -1,0 +1,425 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: flexliving-reviews
+  labels:
+    app: redis
+    component: cache
+    tier: data
+    app.kubernetes.io/name: flexliving-reviews-dashboard
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    description: "Redis cache for FlexLiving Reviews Dashboard"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate  # Redis requires Recreate strategy for persistence
+  selector:
+    matchLabels:
+      app: redis
+      component: cache
+  template:
+    metadata:
+      labels:
+        app: redis
+        component: cache
+        tier: data
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9121"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: flexliving-reviews-sa
+      
+      # Security Context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      
+      # Init Container to substitute Redis password in config
+      initContainers:
+      - name: redis-config-init
+        image: alpine:3.18
+        command:
+        - sh
+        - -c
+        - |
+          # Create redis config with password substituted
+          sed "s/\${REDIS_PASSWORD}/$REDIS_PASSWORD/g" /tmp/redis-template/redis.conf > /tmp/redis-config/redis.conf
+          chmod 644 /tmp/redis-config/redis.conf
+          echo "Redis config generated successfully"
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: flexliving-reviews-secrets
+              key: redis-password
+        volumeMounts:
+        - name: redis-config-template
+          mountPath: /tmp/redis-template
+          readOnly: true
+        - name: redis-config-generated
+          mountPath: /tmp/redis-config
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 999
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        imagePullPolicy: Always
+        
+        command:
+        - redis-server
+        - /etc/redis/redis.conf
+        
+        ports:
+        - name: redis
+          containerPort: 6379
+          protocol: TCP
+        
+        # Environment Variables
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: flexliving-reviews-secrets
+              key: redis-password
+        
+        # Health Checks
+        livenessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - "redis-cli -h localhost -p 6379 -a \"$REDIS_PASSWORD\" ping"
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        
+        readinessProbe:
+          exec:
+            command:
+            - sh
+            - -c
+            - "redis-cli -h localhost -p 6379 -a \"$REDIS_PASSWORD\" ping"
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        
+        # Resource Requirements
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+            ephemeral-storage: 500Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+            ephemeral-storage: 1Gi
+        
+        # Security Context
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 999
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        
+        # Volume Mounts
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data
+        - name: redis-config-generated
+          mountPath: /etc/redis/redis.conf
+          subPath: redis.conf
+          readOnly: true
+      
+      # Redis Exporter for Prometheus
+      - name: redis-exporter
+        image: oliver006/redis_exporter:latest
+        ports:
+        - name: metrics
+          containerPort: 9121
+          protocol: TCP
+        
+        env:
+        - name: REDIS_ADDR
+          value: "redis://localhost:6379"
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: flexliving-reviews-secrets
+              key: redis-password
+        
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 100m
+            memory: 128Mi
+        
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65534
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+      
+      # Volumes
+      volumes:
+      - name: redis-data
+        persistentVolumeClaim:
+          claimName: redis-pvc
+      - name: redis-config-template
+        configMap:
+          name: redis-config-template
+      - name: redis-config-generated
+        emptyDir: {}
+      
+      # Node Selection
+      nodeSelector:
+        kubernetes.io/arch: amd64
+        storage-type: ssd
+      
+      # Tolerations
+      tolerations:
+      - key: "node.kubernetes.io/unschedulable"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+        tolerationSeconds: 300
+      
+      # Affinity - prefer nodes with fast storage
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            preference:
+              matchExpressions:
+              - key: storage-type
+                operator: In
+                values:
+                - ssd
+                - nvme
+---
+# Persistent Volume Claim for Redis
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+  namespace: flexliving-reviews
+  labels:
+    app: redis
+    component: cache
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: fast-ssd
+  resources:
+    requests:
+      storage: 10Gi
+  volumeMode: Filesystem
+---
+# Service for Redis
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: flexliving-reviews
+  labels:
+    app: redis
+    component: cache
+    app.kubernetes.io/name: flexliving-reviews-dashboard
+    app.kubernetes.io/component: cache
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9121"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+  - name: redis
+    port: 6379
+    targetPort: redis
+    protocol: TCP
+  - name: metrics
+    port: 9121
+    targetPort: metrics
+    protocol: TCP
+  selector:
+    app: redis
+    component: cache
+  clusterIP: None  # Headless service
+---
+# ConfigMap Template for Redis Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config-template
+  namespace: flexliving-reviews
+  labels:
+    app: redis
+    component: cache
+data:
+  redis.conf: |
+    # Network and Security
+    bind 0.0.0.0
+    port 6379
+    protected-mode yes
+    requirepass ${REDIS_PASSWORD}
+    
+    # Memory Management
+    maxmemory 400mb
+    maxmemory-policy allkeys-lru
+    
+    # Persistence
+    save 900 1
+    save 300 10
+    save 60 10000
+    
+    # AOF Persistence
+    appendonly yes
+    appendfsync everysec
+    no-appendfsync-on-rewrite no
+    auto-aof-rewrite-percentage 100
+    auto-aof-rewrite-min-size 64mb
+    
+    # Logging
+    loglevel notice
+    logfile ""
+    
+    # Performance
+    tcp-keepalive 300
+    timeout 0
+    tcp-backlog 511
+    
+    # Security
+    rename-command FLUSHDB ""
+    rename-command FLUSHALL ""
+    rename-command EVAL ""
+    rename-command DEBUG ""
+    rename-command CONFIG "CONFIG_b835b8e3f0e7e0f0c9d7c9e9c0f0e0f0"
+    
+    # Clients
+    maxclients 1000
+---
+# Redis Cluster (Alternative High-Availability Setup)
+# Uncomment below for Redis Cluster deployment instead of single instance
+---
+# apiVersion: apps/v1
+# kind: StatefulSet
+# metadata:
+#   name: redis-cluster
+#   namespace: flexliving-reviews
+# spec:
+#   serviceName: redis-cluster
+#   replicas: 6
+#   selector:
+#     matchLabels:
+#       app: redis-cluster
+#   template:
+#     metadata:
+#       labels:
+#         app: redis-cluster
+#     spec:
+#       containers:
+#       - name: redis
+#         image: redis:7-alpine
+#         command:
+#         - redis-server
+#         args:
+#         - /etc/redis/redis.conf
+#         - --cluster-enabled
+#         - "yes"
+#         - --cluster-config-file
+#         - nodes.conf
+#         - --cluster-node-timeout
+#         - "5000"
+#         ports:
+#         - containerPort: 6379
+#           name: client
+#         - containerPort: 16379
+#           name: gossip
+#         volumeMounts:
+#         - name: conf
+#           mountPath: /etc/redis
+#         - name: data
+#           mountPath: /var/lib/redis
+#   volumeClaimTemplates:
+#   - metadata:
+#       name: data
+#     spec:
+#       accessModes: ["ReadWriteOnce"]
+#       resources:
+#         requests:
+#           storage: 5Gi
+---
+# ConfigMap for Application Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flexliving-reviews-config
+  namespace: flexliving-reviews
+  labels:
+    app.kubernetes.io/name: flexliving-reviews-dashboard
+    app.kubernetes.io/component: config
+data:
+  # Database Configuration
+  postgres-db: "flexliving_reviews"
+  
+  # Application URLs
+  api-url: "https://api.reviews.flexliving.com"
+  app-url: "https://reviews.flexliving.com"
+  
+  # Feature Flags
+  enable-analytics: "true"
+  enable-google-reviews: "true"
+  enable-notifications: "true"
+  
+  # Cache Configuration
+  cache-ttl: "300"  # 5 minutes
+  cache-max-items: "10000"
+  
+  # Logging
+  log-level: "info"
+  
+  # External Services
+  hostaway-api-timeout: "10000"
+  google-api-timeout: "10000"
+  google-api-rate-limit-delay: "1000"
+  
+  # Backup Configuration
+  backup-s3-bucket: "flexliving-reviews-backups"
+  backup-retention-days: "30"
+  
+  # Monitoring
+  metrics-enabled: "true"
+  prometheus-port: "9090"
+  
+  # Performance
+  max-request-size: "10mb"
+  request-timeout: "30000"
+  
+  # Security
+  cors-origin: "https://reviews.flexliving.com"
+  jwt-expires-in: "24h"
+  bcrypt-rounds: "12"

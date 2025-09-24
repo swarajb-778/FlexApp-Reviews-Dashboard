@@ -1,0 +1,342 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flexliving-reviews-frontend
+  namespace: flexliving-reviews
+  labels:
+    app: flexliving-reviews-frontend
+    component: frontend
+    tier: presentation
+    app.kubernetes.io/name: flexliving-reviews-dashboard
+    app.kubernetes.io/component: frontend
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    deployment.kubernetes.io/revision: "1"
+    description: "FlexLiving Reviews Dashboard Frontend"
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: flexliving-reviews-frontend
+      component: frontend
+  template:
+    metadata:
+      labels:
+        app: flexliving-reviews-frontend
+        component: frontend
+        tier: presentation
+        version: v1
+      annotations:
+        prometheus.io/scrape: "false"  # Frontend doesn't expose metrics directly
+    spec:
+      serviceAccountName: flexliving-reviews-sa
+      
+      # Security Context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      
+      containers:
+      - name: frontend
+        image: ghcr.io/${{ github.repository }}-frontend:FRONTEND_IMAGE_TAG
+        imagePullPolicy: Always
+        
+        ports:
+        - name: http
+          containerPort: 3000
+          protocol: TCP
+        
+        # Environment Variables
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: PORT
+          value: "3000"
+        - name: NEXT_PUBLIC_API_URL
+          valueFrom:
+            configMapKeyRef:
+              name: flexliving-reviews-config
+              key: api-url
+        - name: NEXT_PUBLIC_APP_URL
+          valueFrom:
+            configMapKeyRef:
+              name: flexliving-reviews-config
+              key: app-url
+        - name: NEXT_PUBLIC_ENABLE_ANALYTICS
+          valueFrom:
+            configMapKeyRef:
+              name: flexliving-reviews-config
+              key: enable-analytics
+              optional: true
+        - name: NEXT_PUBLIC_ENABLE_GOOGLE_REVIEWS
+          valueFrom:
+            configMapKeyRef:
+              name: flexliving-reviews-config
+              key: enable-google-reviews
+              optional: true
+        
+        # Additional config from ConfigMap
+        envFrom:
+        - configMapRef:
+            name: flexliving-reviews-frontend-config
+            optional: true
+        
+        # Health Checks
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          successThreshold: 1
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        
+        # Startup Probe
+        startupProbe:
+          httpGet:
+            path: /
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 20
+        
+        # Resource Requirements
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+            ephemeral-storage: 500Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+            ephemeral-storage: 1Gi
+        
+        # Security Context
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        
+        # Volume Mounts
+        volumeMounts:
+        - name: tmp-volume
+          mountPath: /tmp
+        - name: nextjs-cache
+          mountPath: /app/.next/cache
+        - name: static-assets
+          mountPath: /app/.next/static
+          readOnly: true
+      
+      # Volumes
+      volumes:
+      - name: tmp-volume
+        emptyDir:
+          sizeLimit: 100Mi
+      - name: nextjs-cache
+        emptyDir:
+          sizeLimit: 200Mi
+      - name: static-assets
+        emptyDir:
+          sizeLimit: 100Mi
+      
+      # Node Selection
+      nodeSelector:
+        kubernetes.io/arch: amd64
+        node-type: application
+      
+      # Tolerations
+      tolerations:
+      - key: "node.kubernetes.io/unschedulable"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+        tolerationSeconds: 300
+      
+      # Affinity Rules
+      affinity:
+        # Prefer different nodes for replicas
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - flexliving-reviews-frontend
+              topologyKey: kubernetes.io/hostname
+        
+        # Prefer to be scheduled close to backend
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 50
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - flexliving-reviews-backend
+              topologyKey: kubernetes.io/hostname
+      
+      # DNS Policy
+      dnsPolicy: ClusterFirst
+      
+      # Restart Policy
+      restartPolicy: Always
+      
+      # Termination Grace Period
+      terminationGracePeriodSeconds: 30
+      
+      # Image Pull Secrets
+      imagePullSecrets:
+      - name: flexliving-registry-secret
+---
+# Horizontal Pod Autoscaler for Frontend
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: flexliving-reviews-frontend-hpa
+  namespace: flexliving-reviews
+  labels:
+    app: flexliving-reviews-frontend
+    component: frontend
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: flexliving-reviews-frontend
+  minReplicas: 2
+  maxReplicas: 6
+  
+  metrics:
+  # CPU utilization
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  
+  # Memory utilization
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+      selectPolicy: Min
+    
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 30
+      - type: Pods
+        value: 2
+        periodSeconds: 30
+      selectPolicy: Max
+---
+# Service for Frontend
+apiVersion: v1
+kind: Service
+metadata:
+  name: flexliving-reviews-frontend-service
+  namespace: flexliving-reviews
+  labels:
+    app: flexliving-reviews-frontend
+    component: frontend
+    app.kubernetes.io/name: flexliving-reviews-dashboard
+    app.kubernetes.io/component: frontend
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 80
+    targetPort: http
+    protocol: TCP
+  selector:
+    app: flexliving-reviews-frontend
+    component: frontend
+  sessionAffinity: None
+---
+# Pod Disruption Budget for Frontend
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: flexliving-reviews-frontend-pdb
+  namespace: flexliving-reviews
+  labels:
+    app: flexliving-reviews-frontend
+    component: frontend
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: flexliving-reviews-frontend
+      component: frontend
+---
+# ConfigMap for Frontend-specific configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flexliving-reviews-frontend-config
+  namespace: flexliving-reviews
+  labels:
+    app: flexliving-reviews-frontend
+    component: frontend
+data:
+  # Frontend-specific configuration
+  NEXT_PUBLIC_ENABLE_DARK_MODE: "true"
+  NEXT_PUBLIC_ENABLE_NOTIFICATIONS: "true"
+  NEXT_PUBLIC_MAX_FILE_SIZE: "5MB"
+  NEXT_PUBLIC_SUPPORTED_LANGUAGES: "en,es,fr"
+  
+  # Feature flags
+  NEXT_PUBLIC_FEATURE_FLAG_BULK_OPERATIONS: "true"
+  NEXT_PUBLIC_FEATURE_FLAG_ADVANCED_FILTERS: "true"
+  NEXT_PUBLIC_FEATURE_FLAG_EXPORT_DATA: "true"
+  
+  # UI Configuration
+  NEXT_PUBLIC_THEME_PRIMARY_COLOR: "#2563eb"
+  NEXT_PUBLIC_THEME_SECONDARY_COLOR: "#64748b"
+  NEXT_PUBLIC_DEFAULT_PAGINATION_SIZE: "20"
+  NEXT_PUBLIC_MAX_PAGINATION_SIZE: "100"

@@ -1,0 +1,15 @@
+backend/
+docker-compose.yml
+Dockerfile
+*.docker
+.env*
+.git/
+.github/
+docs/
+k8s/
+monitoring/
+postman/
+scripts/
+*.pdf
+*.md
+!README.md

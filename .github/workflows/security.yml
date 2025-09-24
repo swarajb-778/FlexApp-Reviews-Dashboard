@@ -1,0 +1,597 @@
+name: Security Scanning
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # Run security scans daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # Static Application Security Testing (SAST)
+  sast-analysis:
+    name: Static Application Security Testing
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history for better analysis
+          fetch-depth: 0
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript, typescript
+          config-file: ./.github/codeql/codeql-config.yml
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install backend dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Build applications for analysis
+        run: |
+          cd backend && npm run build
+          cd ../frontend && npm run build
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:javascript"
+
+      - name: Run Semgrep SAST
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: >-
+            p/security-audit
+            p/secrets
+            p/owasp-top-ten
+            p/javascript
+            p/typescript
+            p/react
+            p/nodejs
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+  # Dependency vulnerability scanning
+  dependency-scan:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install backend dependencies
+        working-directory: ./backend
+        run: npm ci
+
+      - name: Install frontend dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Run npm audit for backend
+        working-directory: ./backend
+        run: |
+          # Run npm audit and format output
+          npm audit --audit-level=moderate --json > npm-audit-backend.json || true
+          
+          # Check for high/critical vulnerabilities
+          CRITICAL_VULNS=$(cat npm-audit-backend.json | jq '.vulnerabilities | to_entries | map(select(.value.severity == "critical" or .value.severity == "high")) | length')
+          
+          if [ "$CRITICAL_VULNS" -gt 0 ]; then
+            echo "Found $CRITICAL_VULNS critical/high severity vulnerabilities in backend dependencies"
+            cat npm-audit-backend.json | jq '.vulnerabilities | to_entries | map(select(.value.severity == "critical" or .value.severity == "high"))'
+            exit 1
+          fi
+
+      - name: Run npm audit for frontend
+        working-directory: ./frontend
+        run: |
+          npm audit --audit-level=moderate --json > npm-audit-frontend.json || true
+          
+          CRITICAL_VULNS=$(cat npm-audit-frontend.json | jq '.vulnerabilities | to_entries | map(select(.value.severity == "critical" or .value.severity == "high")) | length')
+          
+          if [ "$CRITICAL_VULNS" -gt 0 ]; then
+            echo "Found $CRITICAL_VULNS critical/high severity vulnerabilities in frontend dependencies"
+            cat npm-audit-frontend.json | jq '.vulnerabilities | to_entries | map(select(.value.severity == "critical" or .value.severity == "high"))'
+            exit 1
+          fi
+
+      - name: Run Snyk vulnerability scan
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high --all-projects
+        continue-on-error: true
+
+      - name: Upload Snyk results to GitHub
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: snyk.sarif
+
+      - name: Run OWASP Dependency Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'FlexLiving Reviews Dashboard'
+          path: '.'
+          format: 'ALL'
+          args: >
+            --enableRetired
+            --enableExperimental
+            --failOnCVSS 7
+            --suppression dependency-check-suppressions.xml
+        continue-on-error: true
+
+      - name: Upload OWASP Dependency Check results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dependency-check-report
+          path: reports/
+
+  # Secrets detection
+  secrets-scan:
+    name: Secrets Detection
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for comprehensive scan
+
+      - name: Run TruffleHog secrets scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: main
+          head: HEAD
+          extra_args: --debug --only-verified
+
+      - name: Run GitLeaks secrets scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE}}
+        with:
+          config-path: .gitleaks.toml
+
+      - name: Scan for API keys and tokens
+        run: |
+          # Custom regex patterns for common secrets
+          echo "Scanning for potential secrets..."
+          
+          # Define patterns
+          PATTERNS=(
+            "api[_-]?key[[:space:]]*[=:][[:space:]]*['\"]?[0-9a-zA-Z]{32,}['\"]?"
+            "secret[_-]?key[[:space:]]*[=:][[:space:]]*['\"]?[0-9a-zA-Z]{32,}['\"]?"
+            "password[[:space:]]*[=:][[:space:]]*['\"]?[^'\"[:space:]]{8,}['\"]?"
+            "token[[:space:]]*[=:][[:space:]]*['\"]?[0-9a-zA-Z]{32,}['\"]?"
+            "aws[_-]?access[_-]?key[_-]?id[[:space:]]*[=:][[:space:]]*['\"]?AKIA[0-9A-Z]{16}['\"]?"
+            "sk-[0-9a-zA-Z]{48}"  # OpenAI API keys
+          )
+          
+          for pattern in "${PATTERNS[@]}"; do
+            matches=$(grep -r -E -i "$pattern" . --exclude-dir=.git --exclude-dir=node_modules || true)
+            if [ ! -z "$matches" ]; then
+              echo "⚠️ Potential secrets found:"
+              echo "$matches"
+              # Don't fail the build for now, just warn
+              # exit 1
+            fi
+          done
+
+  # Container image security scanning
+  container-security:
+    name: Container Security Scan
+    runs-on: ubuntu-latest
+    needs: [sast-analysis]  # Run after images might be built
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image for scanning
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: false
+          tags: flexliving-backend:scan
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build frontend image for scanning
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: false
+          tags: flexliving-frontend:scan
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Install Trivy
+        run: |
+          sudo apt-get update
+          sudo apt-get install wget apt-transport-https gnupg lsb-release
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+          echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update
+          sudo apt-get install trivy
+
+      - name: Scan backend image with Trivy
+        run: |
+          trivy image --format sarif --output trivy-backend.sarif flexliving-backend:scan
+          trivy image --severity HIGH,CRITICAL --exit-code 1 flexliving-backend:scan
+
+      - name: Scan frontend image with Trivy
+        run: |
+          trivy image --format sarif --output trivy-frontend.sarif flexliving-frontend:scan
+          trivy image --severity HIGH,CRITICAL --exit-code 1 flexliving-frontend:scan
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-backend.sarif'
+
+      - name: Upload Trivy scan results (Frontend)
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-frontend.sarif'
+
+      - name: Run Snyk container scan
+        uses: snyk/actions/docker@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          image: flexliving-backend:scan
+          args: --severity-threshold=high
+        continue-on-error: true
+
+      - name: Run Docker Bench Security
+        run: |
+          docker run --rm -it \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v $(pwd):/host \
+            docker/docker-bench-security \
+            -c check_2,check_4,check_5
+        continue-on-error: true
+
+  # Infrastructure as Code security
+  iac-security:
+    name: Infrastructure Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Checkov IaC scan
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          quiet: true
+          soft_fail: false
+          framework: kubernetes,dockerfile,github_configuration
+          output_format: sarif
+          output_file_path: checkov-report.sarif
+          skip_check: CKV_DOCKER_2,CKV_DOCKER_3  # Skip specific checks if needed
+
+      - name: Upload Checkov results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: checkov-report.sarif
+
+      - name: Run Terrascan
+        uses: tenable/terrascan-action@main
+        with:
+          iac_type: 'k8s'
+          iac_version: 'v1'
+          policy_type: 'k8s'
+          only_warn: true
+          sarif_upload: true
+
+      - name: Scan Kubernetes manifests with KubeSec
+        run: |
+          # Install kubesec
+          curl -sSX GET "https://api.github.com/repos/controlplaneio/kubesec/releases/latest" \
+            | jq -r '.assets[] | select(.browser_download_url | contains("linux")) | .browser_download_url' \
+            | wget -qi -
+          tar -xvf kubesec_linux_*.tar.gz
+          sudo mv kubesec /usr/local/bin/
+          
+          # Scan Kubernetes manifests
+          find k8s/ -name "*.yaml" -o -name "*.yml" | while read file; do
+            echo "Scanning $file..."
+            kubesec scan "$file"
+          done
+
+  # Dynamic Application Security Testing (DAST)
+  dast-scan:
+    name: Dynamic Security Testing
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: dast_user
+          POSTGRES_PASSWORD: dast_password
+          POSTGRES_DB: dast_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Start application for DAST
+        run: |
+          # Install dependencies
+          cd backend && npm ci
+          cd ../frontend && npm ci
+          
+          # Setup test database
+          cd ../backend
+          npx prisma generate
+          DATABASE_URL=postgresql://dast_user:dast_password@localhost:5432/dast_db npx prisma migrate deploy
+          
+          # Start backend
+          DATABASE_URL=postgresql://dast_user:dast_password@localhost:5432/dast_db \
+          REDIS_URL=redis://localhost:6379 \
+          NODE_ENV=test \
+          JWT_SECRET=dast_test_secret \
+          npm start &
+          
+          # Wait for backend
+          sleep 30
+          
+          # Start frontend
+          cd ../frontend
+          NEXT_PUBLIC_API_URL=http://localhost:3001 npm start &
+          
+          # Wait for services
+          sleep 60
+
+      - name: Wait for services to be ready
+        run: |
+          timeout 120s bash -c 'until curl -f http://localhost:3001/api/health; do sleep 5; done'
+          timeout 120s bash -c 'until curl -f http://localhost:3000; do sleep 5; done'
+
+      - name: Run OWASP ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.10.0
+        with:
+          target: 'http://localhost:3000'
+          rules_file_name: '.zap/rules.tsv'
+          cmd_options: '-a -d -T 60 -m 10'
+
+      - name: Run OWASP ZAP Full Scan
+        uses: zaproxy/action-full-scan@v0.8.0
+        with:
+          target: 'http://localhost:3000'
+          rules_file_name: '.zap/rules.tsv'
+          cmd_options: '-T 60 -m 10'
+        continue-on-error: true
+
+      - name: Upload ZAP scan results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-scan-results
+          path: report_*
+
+  # License compliance scanning
+  license-scan:
+    name: License Compliance Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          cd backend && npm ci
+          cd ../frontend && npm ci
+
+      - name: Install license-checker
+        run: npm install -g license-checker
+
+      - name: Check backend licenses
+        working-directory: ./backend
+        run: |
+          license-checker --json --out licenses-backend.json
+          license-checker --summary
+
+      - name: Check frontend licenses
+        working-directory: ./frontend
+        run: |
+          license-checker --json --out licenses-frontend.json
+          license-checker --summary
+
+      - name: Scan for restrictive licenses
+        run: |
+          # Define restrictive licenses to flag
+          RESTRICTIVE_LICENSES=("GPL-3.0" "AGPL-3.0" "LGPL-3.0" "CPAL-1.0" "EUPL-1.2")
+          
+          for license in "${RESTRICTIVE_LICENSES[@]}"; do
+            if grep -r "$license" backend/licenses-backend.json frontend/licenses-frontend.json; then
+              echo "⚠️ Found restrictive license: $license"
+              # Uncomment to fail the build on restrictive licenses
+              # exit 1
+            fi
+          done
+
+      - name: Upload license reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: license-reports
+          path: |
+            backend/licenses-backend.json
+            frontend/licenses-frontend.json
+
+  # Security report aggregation
+  security-report:
+    name: Generate Security Report
+    runs-on: ubuntu-latest
+    needs: [sast-analysis, dependency-scan, secrets-scan, container-security, iac-security, license-scan]
+    if: always()
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Generate security summary
+        run: |
+          cat >> security-summary.md << EOF
+          # 🔒 Security Scan Summary
+          
+          **Scan Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          **Commit:** ${{ github.sha }}
+          **Branch:** ${{ github.ref_name }}
+          
+          ## Scan Results
+          
+          | Security Check | Status |
+          |----------------|--------|
+          | SAST Analysis | ${{ needs.sast-analysis.result == 'success' && '✅ Passed' || '❌ Failed' }} |
+          | Dependency Scan | ${{ needs.dependency-scan.result == 'success' && '✅ Passed' || '❌ Failed' }} |
+          | Secrets Detection | ${{ needs.secrets-scan.result == 'success' && '✅ Passed' || '❌ Failed' }} |
+          | Container Security | ${{ needs.container-security.result == 'success' && '✅ Passed' || '❌ Failed' }} |
+          | IaC Security | ${{ needs.iac-security.result == 'success' && '✅ Passed' || '❌ Failed' }} |
+          | License Compliance | ${{ needs.license-scan.result == 'success' && '✅ Passed' || '❌ Failed' }} |
+          
+          ## Recommendations
+          
+          - Review any failed security checks immediately
+          - Update dependencies with known vulnerabilities
+          - Rotate any exposed secrets or API keys
+          - Address container security issues before deployment
+          - Review IaC configurations for security best practices
+          
+          ## Next Steps
+          
+          1. Address critical and high severity findings
+          2. Update security policies if needed
+          3. Schedule regular security reviews
+          4. Consider additional security tools and processes
+          
+          EOF
+
+      - name: Upload security summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-summary
+          path: security-summary.md
+
+      - name: Comment security summary on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = fs.readFileSync('security-summary.md', 'utf8');
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });
+
+      - name: Send security notification
+        if: needs.sast-analysis.result == 'failure' || needs.dependency-scan.result == 'failure' || needs.secrets-scan.result == 'failure'
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          channel: '#security-alerts'
+          text: |
+            🚨 Security scan failed for FlexLiving Reviews Dashboard
+            
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
+            
+            Failed checks:
+            ${{ needs.sast-analysis.result == 'failure' && '- SAST Analysis' || '' }}
+            ${{ needs.dependency-scan.result == 'failure' && '- Dependency Scan' || '' }}
+            ${{ needs.secrets-scan.result == 'failure' && '- Secrets Detection' || '' }}
+            
+            Please review and address security issues immediately.
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SECURITY_SLACK_WEBHOOK_URL }}

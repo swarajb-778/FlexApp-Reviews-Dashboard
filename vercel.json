@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "name": "flexliving-reviews-dashboard",
+  "builds": [
+    {
+      "src": "frontend/next.config.js",
+      "use": "@vercel/next",
+      "config": {
+        "distDir": ".next"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/frontend/$1"
+    }
+  ]
+}

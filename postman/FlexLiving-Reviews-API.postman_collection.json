@@ -1,0 +1,1583 @@
+{
+	"info": {
+		"_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+		"name": "FlexLiving Reviews API",
+		"description": "Comprehensive API collection for FlexLiving Reviews Dashboard\n\nThis collection includes all endpoints for:\n- Authentication\n- Reviews management\n- Listings management\n- Hostaway integration\n- Google Reviews integration\n- Admin operations\n- Health checks and monitoring\n\n## Authentication\nMost endpoints require JWT bearer token authentication. Use the login endpoint first to obtain a token.\n\n## Environment Variables\nSet up the following environment variables:\n- `baseUrl`: API base URL (e.g., http://localhost:3001 or https://api.reviews.flexliving.com)\n- `authToken`: JWT token obtained from login\n- `testUserId`: User ID for testing\n- `testListingId`: Listing ID for testing\n- `testReviewId`: Review ID for testing\n\n## Pre-request Scripts\nThe collection includes automatic token refresh and common variable setup.\n\n## Tests\nEach request includes comprehensive tests to validate responses.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "12345678"
+	},
+	"item": [
+		{
+			"name": "Authentication",
+			"item": [
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response has token\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('token');",
+									"    pm.environment.set('authToken', jsonData.token);",
+									"});",
+									"",
+									"pm.test(\"Response has user data\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('user');",
+									"    pm.expect(jsonData.user).to.have.property('id');",
+									"    pm.expect(jsonData.user).to.have.property('email');",
+									"    pm.environment.set('testUserId', jsonData.user.id);",
+									"});",
+									"",
+									"pm.test(\"Token format is valid\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    const token = jsonData.token;",
+									"    const parts = token.split('.');",
+									"    pm.expect(parts).to.have.lengthOf(3); // JWT has 3 parts",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"{{testEmail}}\",\n  \"password\": \"{{testPassword}}\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/login",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"login"
+							]
+						},
+						"description": "Authenticate user and obtain JWT token"
+					}
+				},
+				{
+					"name": "Verify Token",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Token is valid\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('valid', true);",
+									"    pm.expect(jsonData).to.have.property('user');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{authToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/auth/verify",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"auth",
+								"verify"
+							]
+						},
+						"description": "Verify the validity of current JWT token"
+					}
+				}
+			],
+			"description": "Authentication endpoints for user login and token management"
+		},
+		{
+			"name": "Health & Monitoring",
+			"item": [
+				{
+					"name": "Basic Health Check",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response has status\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('status', 'healthy');",
+									"});",
+									"",
+									"pm.test(\"Response time is reasonable\", function () {",
+									"    pm.expect(pm.response.responseTime).to.be.below(1000);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/health",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"health"
+							]
+						},
+						"description": "Basic health check endpoint"
+					}
+				},
+				{
+					"name": "Detailed Health Check",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200 or 503\", function () {",
+									"    pm.expect(pm.response.code).to.be.oneOf([200, 503]);",
+									"});",
+									"",
+									"pm.test(\"Response has detailed components\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('components');",
+									"    pm.expect(jsonData.components).to.have.property('database');",
+									"    pm.expect(jsonData.components).to.have.property('redis');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{authToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/health/detailed",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"health",
+								"detailed"
+							]
+						},
+						"description": "Detailed health check with component status"
+					}
+				},
+				{
+					"name": "Metrics",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response is Prometheus format\", function () {",
+									"    const responseText = pm.response.text();",
+									"    pm.expect(responseText).to.include('# HELP');",
+									"    pm.expect(responseText).to.include('# TYPE');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/metrics",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"metrics"
+							]
+						},
+						"description": "Prometheus metrics endpoint"
+					}
+				}
+			],
+			"description": "Health check and monitoring endpoints"
+		},
+		{
+			"name": "Reviews",
+			"item": [
+				{
+					"name": "Get All Reviews",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response has reviews array\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('reviews');",
+									"    pm.expect(jsonData.reviews).to.be.an('array');",
+									"});",
+									"",
+									"pm.test(\"Response has pagination\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('pagination');",
+									"    pm.expect(jsonData.pagination).to.have.property('page');",
+									"    pm.expect(jsonData.pagination).to.have.property('limit');",
+									"    pm.expect(jsonData.pagination).to.have.property('total');",
+									"});",
+									"",
+									"// Store first review ID for other tests",
+									"const jsonData = pm.response.json();",
+									"if (jsonData.reviews && jsonData.reviews.length > 0) {",
+									"    pm.environment.set('testReviewId', jsonData.reviews[0].id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{authToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/reviews?page=1&limit=20",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"reviews"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "20"
+								}
+							]
+						},
+						"description": "Get paginated list of reviews"
+					}
+				},
+				{
+					"name": "Get Reviews with Filters",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"All reviews match filter criteria\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    if (jsonData.reviews && jsonData.reviews.length > 0) {",
+									"        jsonData.reviews.forEach(review => {",
+									"            pm.expect(review.status).to.equal('pending');",
+									"        });",
+									"    }",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{authToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/reviews?status=pending&source=airbnb&rating=5",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"reviews"
+							],
+							"query": [
+								{
+									"key": "status",
+									"value": "pending"
+								},
+								{
+									"key": "source",
+									"value": "airbnb"
+								},
+								{
+									"key": "rating",
+									"value": "5"
+								}
+							]
+						},
+						"description": "Get reviews with multiple filters"
+					}
+				},
+				{
+					"name": "Get Single Review",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response has review data\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('review');",
+									"    pm.expect(jsonData.review).to.have.property('id');",
+									"    pm.expect(jsonData.review).to.have.property('rating');",
+									"    pm.expect(jsonData.review).to.have.property('comment');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{authToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/reviews/{{testReviewId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"reviews",
+								"{{testReviewId}}"
+							]
+						},
+						"description": "Get a single review by ID"
+					}
+				},
+				{
+					"name": "Create Manual Review",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 201\", function () {",
+									"    pm.response.to.have.status(201);",
+									"});",
+									"",
+									"pm.test(\"Review created successfully\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('success', true);",
+									"    pm.expect(jsonData).to.have.property('review');",
+									"    pm.expect(jsonData.review).to.have.property('id');",
+									"    pm.environment.set('createdReviewId', jsonData.review.id);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{authToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"guestName\": \"John Doe\",\n  \"rating\": 5,\n  \"comment\": \"Excellent property! Very clean and well-maintained. Would definitely stay again.\",\n  \"source\": \"manual\",\n  \"listingId\": \"{{testListingId}}\",\n  \"metadata\": {\n    \"checkInDate\": \"2024-01-10\",\n    \"checkOutDate\": \"2024-01-15\",\n    \"notes\": \"Guest contacted us directly\"\n  }\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/reviews",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"reviews"
+							]
+						},
+						"description": "Create a new manual review"
+					}
+				}
+			],
+			"description": "Review management endpoints"
+		},
+		{
+			"name": "Review Approval",
+			"item": [
+				{
+					"name": "Approve Review",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Review approved successfully\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('success', true);",
+									"    pm.expect(jsonData.review.status).to.equal('approved');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{authToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"approvedBy\": \"{{testUserId}}\",\n  \"notes\": \"Review approved after manual verification\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/reviews/{{testReviewId}}/approve",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"reviews",
+								"{{testReviewId}}",
+								"approve"
+							]
+						},
+						"description": "Approve a pending review"
+					}
+				},
+				{
+					"name": "Reject Review",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Review rejected successfully\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('success', true);",
+									"    pm.expect(jsonData.review.status).to.equal('rejected');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{authToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"rejectedBy\": \"{{testUserId}}\",\n  \"reason\": \"inappropriate_content\",\n  \"notes\": \"Review contains inappropriate language\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/reviews/{{testReviewId}}/reject",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"reviews",
+								"{{testReviewId}}",
+								"reject"
+							]
+						},
+						"description": "Reject a review"
+					}
+				},
+				{
+					"name": "Bulk Approve Reviews",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Bulk approval successful\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('success', true);",
+									"    pm.expect(jsonData).to.have.property('approved');",
+									"    pm.expect(jsonData).to.have.property('failed');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{authToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"reviewIds\": [\"{{testReviewId}}\", \"{{createdReviewId}}\"],\n  \"approvedBy\": \"{{testUserId}}\",\n  \"notes\": \"Bulk approval for verified reviews\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/reviews/bulk/approve",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"reviews",
+								"bulk",
+								"approve"
+							]
+						},
+						"description": "Approve multiple reviews at once"
+					}
+				}
+			],
+			"description": "Review approval workflow endpoints"
+		},
+		{
+			"name": "Listings",
+			"item": [
+				{
+					"name": "Get All Listings",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response has listings array\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('listings');",
+									"    pm.expect(jsonData.listings).to.be.an('array');",
+									"});",
+									"",
+									"// Store first listing ID for other tests",
+									"const jsonData = pm.response.json();",
+									"if (jsonData.listings && jsonData.listings.length > 0) {",
+									"    pm.environment.set('testListingId', jsonData.listings[0].id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{authToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/listings?page=1&limit=20",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"listings"
+							],
+							"query": [
+								{
+									"key": "page",
+									"value": "1"
+								},
+								{
+									"key": "limit",
+									"value": "20"
+								}
+							]
+						},
+						"description": "Get paginated list of listings"
+					}
+				},
+				{
+					"name": "Search Listings",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Search results match criteria\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('listings');",
+									"    // Results should contain search term or be empty",
+									"    if (jsonData.listings.length > 0) {",
+									"        const searchTerm = 'apartment';",
+									"        const hasMatchingResult = jsonData.listings.some(listing => ",
+									"            listing.name.toLowerCase().includes(searchTerm) ||",
+									"            listing.address.toLowerCase().includes(searchTerm)",
+									"        );",
+									"        pm.expect(hasMatchingResult).to.be.true;",
+									"    }",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{authToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/listings?search=apartment&city=New York",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"listings"
+							],
+							"query": [
+								{
+									"key": "search",
+									"value": "apartment"
+								},
+								{
+									"key": "city",
+									"value": "New York"
+								}
+							]
+						},
+						"description": "Search listings by name and location"
+					}
+				},
+				{
+					"name": "Get Single Listing",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response has listing data\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('listing');",
+									"    pm.expect(jsonData.listing).to.have.property('id');",
+									"    pm.expect(jsonData.listing).to.have.property('name');",
+									"    pm.expect(jsonData.listing).to.have.property('address');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{authToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/listings/{{testListingId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"listings",
+								"{{testListingId}}"
+							]
+						},
+						"description": "Get a single listing with reviews"
+					}
+				}
+			],
+			"description": "Listing management endpoints"
+		},
+		{
+			"name": "Hostaway Integration",
+			"item": [
+				{
+					"name": "Import Listings from Hostaway",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Import process completed\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('success', true);",
+									"    pm.expect(jsonData).to.have.property('imported');",
+									"    pm.expect(jsonData).to.have.property('updated');",
+									"    pm.expect(jsonData).to.have.property('skipped');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{authToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/listings/hostaway/import",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"listings",
+								"hostaway",
+								"import"
+							]
+						},
+						"description": "Import all listings from Hostaway"
+					}
+				},
+				{
+					"name": "Import Reviews from Hostaway",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Reviews import completed\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('success', true);",
+									"    pm.expect(jsonData).to.have.property('processed');",
+									"    pm.expect(jsonData).to.have.property('imported');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{authToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/reviews/hostaway",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"reviews",
+								"hostaway"
+							]
+						},
+						"description": "Import all reviews from Hostaway"
+					}
+				},
+				{
+					"name": "Get Hostaway Sync Status",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Sync status information available\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('lastSync');",
+									"    pm.expect(jsonData).to.have.property('status');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{authToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/reviews/hostaway/status",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"reviews",
+								"hostaway",
+								"status"
+							]
+						},
+						"description": "Get current Hostaway synchronization status"
+					}
+				}
+			],
+			"description": "Hostaway integration endpoints for importing listings and reviews"
+		},
+		{
+			"name": "Google Reviews Integration",
+			"item": [
+				{
+					"name": "Search Google Places",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Places search results\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('success', true);",
+									"    pm.expect(jsonData).to.have.property('places');",
+									"    pm.expect(jsonData.places).to.be.an('array');",
+									"});",
+									"",
+									"// Store first place ID for other tests",
+									"const jsonData = pm.response.json();",
+									"if (jsonData.places && jsonData.places.length > 0) {",
+									"    pm.environment.set('testPlaceId', jsonData.places[0].place_id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/reviews/google/places/search?query=hotel&lat=40.7128&lng=-74.0060&radius=5000",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"reviews",
+								"google",
+								"places",
+								"search"
+							],
+							"query": [
+								{
+									"key": "query",
+									"value": "hotel"
+								},
+								{
+									"key": "lat",
+									"value": "40.7128"
+								},
+								{
+									"key": "lng",
+									"value": "-74.0060"
+								},
+								{
+									"key": "radius",
+									"value": "5000"
+								}
+							]
+						},
+						"description": "Search for places using Google Places API"
+					}
+				},
+				{
+					"name": "Get Google Place Details",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Place details available\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('success', true);",
+									"    pm.expect(jsonData).to.have.property('place');",
+									"    pm.expect(jsonData.place).to.have.property('place_id');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/reviews/google/places/{{testPlaceId}}",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"reviews",
+								"google",
+								"places",
+								"{{testPlaceId}}"
+							]
+						},
+						"description": "Get detailed information about a Google Place"
+					}
+				},
+				{
+					"name": "Import Google Places Reviews",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Google reviews import completed\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('success', true);",
+									"    pm.expect(jsonData).to.have.property('imported');",
+									"    pm.expect(jsonData).to.have.property('skipped');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{authToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"placeId\": \"{{testPlaceId}}\",\n  \"listingId\": \"{{testListingId}}\",\n  \"autoApprove\": false\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/reviews/google/import/places",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"reviews",
+								"google",
+								"import",
+								"places"
+							]
+						},
+						"description": "Import reviews from a Google Place"
+					}
+				},
+				{
+					"name": "Google APIs Health Check",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Google APIs status available\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('success', true);",
+									"    pm.expect(jsonData).to.have.property('apis');",
+									"    pm.expect(jsonData).to.have.property('usage');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{authToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/reviews/google/health",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"reviews",
+								"google",
+								"health"
+							]
+						},
+						"description": "Check Google APIs health and quota status"
+					}
+				}
+			],
+			"description": "Google Reviews integration endpoints"
+		},
+		{
+			"name": "Analytics & Statistics",
+			"item": [
+				{
+					"name": "Review Analytics",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Analytics data available\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('summary');",
+									"    pm.expect(jsonData.summary).to.have.property('totalReviews');",
+									"    pm.expect(jsonData.summary).to.have.property('averageRating');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{authToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/reviews/analytics?period=30d",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"reviews",
+								"analytics"
+							],
+							"query": [
+								{
+									"key": "period",
+									"value": "30d"
+								}
+							]
+						},
+						"description": "Get review analytics and statistics"
+					}
+				},
+				{
+					"name": "Listing Performance",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Listing performance metrics available\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('listing');",
+									"    pm.expect(jsonData).to.have.property('metrics');",
+									"    pm.expect(jsonData.metrics).to.have.property('totalReviews');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{authToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/listings/{{testListingId}}/analytics",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"listings",
+								"{{testListingId}}",
+								"analytics"
+							]
+						},
+						"description": "Get performance analytics for a specific listing"
+					}
+				}
+			],
+			"description": "Analytics and reporting endpoints"
+		},
+		{
+			"name": "Admin Operations",
+			"item": [
+				{
+					"name": "System Statistics",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"System stats available\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('reviews');",
+									"    pm.expect(jsonData).to.have.property('listings');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{authToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/admin/stats",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"stats"
+							]
+						},
+						"description": "Get administrative statistics"
+					}
+				},
+				{
+					"name": "Performance Metrics",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Performance metrics available\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('system');",
+									"    pm.expect(jsonData).to.have.property('metrics');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{authToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/admin/performance",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"performance"
+							]
+						},
+						"description": "Get system performance metrics"
+					}
+				},
+				{
+					"name": "Clear Cache",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status code is 200\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Cache cleared successfully\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('success', true);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "bearer",
+							"bearer": [
+								{
+									"key": "token",
+									"value": "{{authToken}}",
+									"type": "string"
+								}
+							]
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"pattern\": \"reviews:*\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/admin/cache/clear",
+							"host": [
+								"{{baseUrl}}"
+							],
+							"path": [
+								"api",
+								"admin",
+								"cache",
+								"clear"
+							]
+						},
+						"description": "Clear application cache"
+					}
+				}
+			],
+			"description": "Administrative endpoints for system management"
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Auto-refresh token if it's about to expire",
+					"const token = pm.environment.get('authToken');",
+					"if (token) {",
+					"    try {",
+					"        const payload = JSON.parse(atob(token.split('.')[1]));",
+					"        const currentTime = Math.floor(Date.now() / 1000);",
+					"        const tokenExpiration = payload.exp;",
+					"        ",
+					"        // If token expires in less than 5 minutes, refresh it",
+					"        if (tokenExpiration - currentTime < 300) {",
+					"            console.log('Token is about to expire, consider refreshing');",
+					"        }",
+					"    } catch (e) {",
+					"        console.log('Could not parse token');",
+					"    }",
+					"}",
+					"",
+					"// Set default test values if not set",
+					"if (!pm.environment.get('testEmail')) {",
+					"    pm.environment.set('testEmail', 'test@flexliving.com');",
+					"}",
+					"if (!pm.environment.get('testPassword')) {",
+					"    pm.environment.set('testPassword', 'testPassword123');",
+					"}"
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Global test for all requests",
+					"pm.test(\"Response time is acceptable\", function () {",
+					"    pm.expect(pm.response.responseTime).to.be.below(5000);",
+					"});",
+					"",
+					"// Log response time for monitoring",
+					"console.log(`Response time: ${pm.response.responseTime}ms for ${pm.request.url}`);",
+					"",
+					"// Check for common error patterns",
+					"if (pm.response.code >= 400) {",
+					"    pm.test(\"Error response has proper structure\", function () {",
+					"        const jsonData = pm.response.json();",
+					"        pm.expect(jsonData).to.have.property('error');",
+					"    });",
+					"}"
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "{{baseUrl}}",
+			"type": "string"
+		}
+	]
+}

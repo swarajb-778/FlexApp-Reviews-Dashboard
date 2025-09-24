@@ -156,6 +156,58 @@ export const getRedisHealth = async (): Promise<{
 };
 
 /**
+ * Clear keys matching a pattern using SCAN (non-blocking, production-safe)
+ */
+export const clearByPattern = async (pattern: string): Promise<number> => {
+  try {
+    const client = getRedisClient();
+    let deletedCount = 0;
+    const batchSize = 500; // Batch size for pipelined deletions
+    let keysBatch: string[] = [];
+
+    // Use SCAN iterator to find keys matching the pattern
+    for await (const key of client.scanIterator({ 
+      MATCH: pattern, 
+      COUNT: 100 // Number of keys to scan per iteration
+    })) {
+      keysBatch.push(key);
+
+      // Process in batches to avoid overwhelming Redis
+      if (keysBatch.length >= batchSize) {
+        const pipeline = client.multi();
+        keysBatch.forEach(k => pipeline.del(k));
+        await pipeline.exec();
+        
+        deletedCount += keysBatch.length;
+        logger.debug(`Deleted batch of ${keysBatch.length} keys matching pattern ${pattern}`);
+        keysBatch = [];
+      }
+    }
+
+    // Process remaining keys
+    if (keysBatch.length > 0) {
+      const pipeline = client.multi();
+      keysBatch.forEach(k => pipeline.del(k));
+      await pipeline.exec();
+      
+      deletedCount += keysBatch.length;
+      logger.debug(`Deleted final batch of ${keysBatch.length} keys matching pattern ${pattern}`);
+    }
+
+    logger.info(`Successfully cleared ${deletedCount} keys matching pattern: ${pattern}`, {
+      pattern,
+      deletedCount,
+      operation: 'scan_based_clear'
+    });
+
+    return deletedCount;
+  } catch (error) {
+    logger.error(`Failed to clear keys by pattern ${pattern}:`, error);
+    return 0;
+  }
+};
+
+/**
  * Cache utility functions
  */
 export const cacheUtils = {
@@ -236,5 +288,10 @@ export const cacheUtils = {
       return false;
     }
   },
+
+  /**
+   * Clear keys by pattern using SCAN (production-safe)
+   */
+  clearByPattern: clearByPattern,
 };
 

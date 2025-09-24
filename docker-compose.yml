@@ -44,23 +44,23 @@ services:
       start_period: 30s
 
   # Backend Application
-  app:
+  backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
       target: development
-    container_name: flexliving-app
+    container_name: flexliving-backend
     restart: unless-stopped
     environment:
       NODE_ENV: development
       DATABASE_URL: postgresql://flexliving:password@db:5432/flexliving_reviews?schema=public
       REDIS_URL: redis://redis:6379
-      PORT: 4000
+      PORT: 3001
       HOST: 0.0.0.0
       LOG_LEVEL: debug
       FRONTEND_URL: http://localhost:3000
     ports:
-      - "4000:4000"
+      - "3001:3001"
     volumes:
       # Mount source code for hot reload in development
       - ./backend/src:/app/src:ro
@@ -79,7 +79,46 @@ services:
     networks:
       - flexliving-network
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:4000/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:3001/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Frontend Application
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    container_name: flexliving-frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+    ports:
+      - "3000:3000"
+    volumes:
+      # Mount source code for hot reload in development
+      - ./frontend/app:/app/app:ro
+      - ./frontend/components:/app/components:ro
+      - ./frontend/lib:/app/lib:ro
+      - ./frontend/public:/app/public:ro
+      - ./frontend/package.json:/app/package.json:ro
+      - ./frontend/tsconfig.json:/app/tsconfig.json:ro
+      - ./frontend/tailwind.config.ts:/app/tailwind.config.ts:ro
+      - ./frontend/next.config.js:/app/next.config.js:ro
+      - ./frontend/.eslintrc.json:/app/.eslintrc.json:ro
+      - ./frontend/.prettierrc:/app/.prettierrc:ro
+      # Exclude node_modules and .next to prevent conflicts
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - backend
+    networks:
+      - flexliving-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000 || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

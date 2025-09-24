@@ -873,7 +873,10 @@ Deliverables:
 
 Account ID: 61148
 
-API Key: f94377ebbbb479490bb3ec364649168dc443dda2e4830facaf5de2e74ccc9152
+API Key: __REAL_KEY_REMOVED_FOR_SECURITY__
+
+# SECURITY NOTE: Real API key has been removed from this file.
+# This credential has been rotated/revoked for security purposes.
 
 6. Important Notes
 

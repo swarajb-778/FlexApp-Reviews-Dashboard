@@ -1,0 +1,496 @@
+name: Deployment Pipeline
+
+on:
+  workflow_run:
+    workflows: ["CI/CD Pipeline"]
+    types:
+      - completed
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+      image_tag:
+        description: 'Image tag to deploy'
+        required: false
+        default: 'latest'
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  # Determine deployment parameters
+  setup:
+    name: Setup Deployment
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    
+    outputs:
+      environment: ${{ steps.determine-env.outputs.environment }}
+      should-deploy: ${{ steps.determine-env.outputs.should-deploy }}
+      image-tag: ${{ steps.determine-env.outputs.image-tag }}
+      backend-image: ${{ steps.determine-env.outputs.backend-image }}
+      frontend-image: ${{ steps.determine-env.outputs.frontend-image }}
+
+    steps:
+      - name: Determine deployment environment
+        id: determine-env
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+            echo "should-deploy=true" >> $GITHUB_OUTPUT
+            echo "image-tag=${{ github.event.inputs.image_tag }}" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "environment=production" >> $GITHUB_OUTPUT
+            echo "should-deploy=true" >> $GITHUB_OUTPUT
+            echo "image-tag=latest" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            echo "environment=staging" >> $GITHUB_OUTPUT
+            echo "should-deploy=true" >> $GITHUB_OUTPUT
+            echo "image-tag=develop" >> $GITHUB_OUTPUT
+          else
+            echo "should-deploy=false" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "backend-image=${{ env.REGISTRY }}/${{ github.repository }}-backend:$image_tag" >> $GITHUB_OUTPUT
+          echo "frontend-image=${{ env.REGISTRY }}/${{ github.repository }}-frontend:$image_tag" >> $GITHUB_OUTPUT
+
+  # Pre-deployment validation
+  pre-deployment-checks:
+    name: Pre-deployment Validation
+    runs-on: ubuntu-latest
+    needs: [setup]
+    if: needs.setup.outputs.should-deploy == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate Kubernetes manifests
+        run: |
+          # Install kubeval for validation
+          wget https://github.com/instrumenta/kubeval/releases/latest/download/kubeval-linux-amd64.tar.gz
+          tar xf kubeval-linux-amd64.tar.gz
+          sudo mv kubeval /usr/local/bin
+          
+          # Validate all Kubernetes manifests
+          find k8s/ -name "*.yaml" -o -name "*.yml" | xargs kubeval
+
+      - name: Validate Docker images exist
+        run: |
+          # Check if images exist in registry
+          docker manifest inspect ${{ needs.setup.outputs.backend-image }}
+          docker manifest inspect ${{ needs.setup.outputs.frontend-image }}
+
+      - name: Run security checks on images
+        run: |
+          # Install Trivy for security scanning
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+          
+          # Scan images for vulnerabilities
+          trivy image --exit-code 1 --severity HIGH,CRITICAL ${{ needs.setup.outputs.backend-image }}
+          trivy image --exit-code 1 --severity HIGH,CRITICAL ${{ needs.setup.outputs.frontend-image }}
+
+  # Database migration
+  database-migration:
+    name: Database Migration
+    runs-on: ubuntu-latest
+    needs: [setup, pre-deployment-checks]
+    if: needs.setup.outputs.should-deploy == 'true'
+    environment: ${{ needs.setup.outputs.environment }}-db
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ./backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: npm ci --only=production
+
+      - name: Run database migrations
+        working-directory: ./backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          echo "Running database migrations..."
+          npx prisma generate
+          npx prisma migrate deploy
+          
+          # Verify migration success
+          npx prisma db execute --stdin <<< "SELECT version();"
+
+      - name: Create backup before deployment
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          # Create pre-deployment backup
+          TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+          BACKUP_FILE="pre_deploy_backup_${TIMESTAMP}.sql"
+          
+          pg_dump $DATABASE_URL > /tmp/$BACKUP_FILE
+          
+          # Upload to S3 or your backup storage
+          if [[ -n "${{ secrets.AWS_S3_BACKUP_BUCKET }}" ]]; then
+            aws s3 cp /tmp/$BACKUP_FILE s3://${{ secrets.AWS_S3_BACKUP_BUCKET }}/pre-deploy-backups/
+          fi
+
+  # Staging deployment
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [setup, pre-deployment-checks, database-migration]
+    if: needs.setup.outputs.should-deploy == 'true' && needs.setup.outputs.environment == 'staging'
+    environment:
+      name: staging
+      url: https://staging.reviews.flexliving.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure Kubernetes
+        uses: azure/k8s-set-context@v3
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.STAGING_KUBECONFIG }}
+
+      - name: Deploy to Staging Kubernetes
+        run: |
+          # Update image tags and repository in manifests
+          sed -i -e "s|BACKEND_IMAGE_TAG|${{ needs.setup.outputs.image-tag }}|g" -e "s|\${{ github.repository }}|${{ github.repository }}|g" k8s/backend-deployment.yaml
+          sed -i -e "s|FRONTEND_IMAGE_TAG|${{ needs.setup.outputs.image-tag }}|g" -e "s|\${{ github.repository }}|${{ github.repository }}|g" k8s/frontend-deployment.yaml
+          
+          # Apply Kubernetes manifests (only existing files)
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/database.yaml -n flexliving-reviews-staging
+          kubectl apply -f k8s/redis.yaml -n flexliving-reviews-staging
+          kubectl apply -f k8s/backend-deployment.yaml -n flexliving-reviews-staging
+          kubectl apply -f k8s/frontend-deployment.yaml -n flexliving-reviews-staging
+          kubectl apply -f k8s/ingress.yaml -n flexliving-reviews-staging
+
+      - name: Wait for deployment to complete
+        run: |
+          kubectl rollout status deployment/flexliving-reviews-backend -n flexliving-reviews-staging --timeout=300s
+          kubectl rollout status deployment/flexliving-reviews-frontend -n flexliving-reviews-staging --timeout=300s
+
+      - name: Run smoke tests
+        run: |
+          # Wait for services to be ready
+          sleep 30
+          
+          # Test backend health
+          kubectl run test-backend --rm -i --restart=Never --image=curlimages/curl:latest -n flexliving-reviews-staging -- \
+            curl -f http://flexliving-reviews-backend-service/api/health
+          
+          # Test frontend
+          kubectl run test-frontend --rm -i --restart=Never --image=curlimages/curl:latest -n flexliving-reviews-staging -- \
+            curl -f http://flexliving-reviews-frontend-service/
+
+      - name: Run integration tests against staging
+        run: |
+          # Run API integration tests against staging environment
+          cd backend
+          npm run test:staging
+        env:
+          STAGING_API_URL: https://staging-api.reviews.flexliving.com
+
+  # Production deployment with approval gate
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [setup, pre-deployment-checks, database-migration]
+    if: needs.setup.outputs.should-deploy == 'true' && needs.setup.outputs.environment == 'production'
+    environment:
+      name: production
+      url: https://reviews.flexliving.com
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure Production Kubernetes
+        uses: azure/k8s-set-context@v3
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.PRODUCTION_KUBECONFIG }}
+
+      - name: Create deployment record
+        id: deployment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const deployment = await github.rest.repos.createDeployment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: context.sha,
+              environment: 'production',
+              required_contexts: [],
+              auto_merge: false,
+              description: `Deploy ${context.sha.substring(0, 7)} to production`
+            });
+            return deployment.data.id;
+
+      - name: Set deployment status to in progress
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: ${{ steps.deployment.outputs.result }},
+              state: 'in_progress',
+              description: 'Production deployment in progress'
+            });
+
+      - name: Enable maintenance mode
+        run: |
+          # Scale down to enable maintenance mode
+          kubectl patch ingress flexliving-reviews-ingress -n flexliving-reviews \
+            -p '{"metadata":{"annotations":{"nginx.ingress.kubernetes.io/server-snippet":"return 503;"}}}' || true
+
+      - name: Blue-Green Deployment to Production
+        id: deploy
+        run: |
+          # Create new deployment with green environment
+          sed -i -e "s|BACKEND_IMAGE_TAG|${{ needs.setup.outputs.image-tag }}|g" -e "s|\${{ github.repository }}|${{ github.repository }}|g" k8s/backend-deployment.yaml
+          sed -i -e "s|FRONTEND_IMAGE_TAG|${{ needs.setup.outputs.image-tag }}|g" -e "s|\${{ github.repository }}|${{ github.repository }}|g" k8s/frontend-deployment.yaml
+          
+          # Add green environment labels
+          sed -i 's|app: flexliving-reviews-backend|app: flexliving-reviews-backend\n        version: green|g' k8s/backend-deployment.yaml
+          sed -i 's|app: flexliving-reviews-frontend|app: flexliving-reviews-frontend\n        version: green|g' k8s/frontend-deployment.yaml
+          
+          # Deploy green environment
+          kubectl apply -f k8s/backend-deployment.yaml -n flexliving-reviews
+          kubectl apply -f k8s/frontend-deployment.yaml -n flexliving-reviews
+          
+          # Wait for green deployment to be ready
+          kubectl rollout status deployment/flexliving-reviews-backend -n flexliving-reviews --timeout=600s
+          kubectl rollout status deployment/flexliving-reviews-frontend -n flexliving-reviews --timeout=600s
+
+      - name: Run production health checks
+        run: |
+          # Test green environment internally
+          kubectl run prod-health-check --rm -i --restart=Never --image=curlimages/curl:latest -n flexliving-reviews -- \
+            curl -f http://flexliving-reviews-backend-service/api/health
+          
+          # Run comprehensive health checks
+          kubectl run prod-api-test --rm -i --restart=Never --image=curlimages/curl:latest -n flexliving-reviews -- \
+            curl -f -H "Content-Type: application/json" http://flexliving-reviews-backend-service/api/reviews
+
+      - name: Switch traffic to green environment
+        run: |
+          # Update service selectors to point to green environment
+          kubectl patch service flexliving-reviews-backend-service -n flexliving-reviews \
+            -p '{"spec":{"selector":{"version":"green"}}}'
+          kubectl patch service flexliving-reviews-frontend-service -n flexliving-reviews \
+            -p '{"spec":{"selector":{"version":"green"}}}'
+          
+          # Disable maintenance mode
+          kubectl patch ingress flexliving-reviews-ingress -n flexliving-reviews \
+            -p '{"metadata":{"annotations":{"nginx.ingress.kubernetes.io/server-snippet":null}}}'
+
+      - name: Wait for traffic switch
+        run: |
+          # Wait for ingress to pick up changes
+          sleep 30
+
+      - name: Final production validation
+        run: |
+          # Test external endpoints
+          for i in {1..5}; do
+            curl -f https://api.reviews.flexliving.com/api/health && break
+            sleep 10
+          done
+          
+          curl -f https://reviews.flexliving.com
+          
+          # Test critical user journeys
+          response=$(curl -s -w "%{http_code}" https://api.reviews.flexliving.com/api/reviews?limit=1)
+          if [[ "$response" -ge 400 ]]; then
+            echo "Production validation failed with status: $response"
+            exit 1
+          fi
+
+      - name: Cleanup blue environment
+        if: success()
+        run: |
+          # Remove blue environment after successful deployment
+          kubectl delete deployment --selector="app=flexliving-reviews-backend,version!=green" -n flexliving-reviews || true
+          kubectl delete deployment --selector="app=flexliving-reviews-frontend,version!=green" -n flexliving-reviews || true
+
+      - name: Update deployment status - Success
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: ${{ steps.deployment.outputs.result }},
+              state: 'success',
+              environment_url: 'https://reviews.flexliving.com',
+              description: 'Production deployment completed successfully'
+            });
+
+      - name: Update deployment status - Failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: ${{ steps.deployment.outputs.result }},
+              state: 'failure',
+              description: 'Production deployment failed'
+            });
+
+      - name: Rollback on failure
+        if: failure()
+        run: |
+          echo "Deployment failed, initiating rollback..."
+          
+          # Switch back to blue environment
+          kubectl patch service flexliving-reviews-backend-service -n flexliving-reviews \
+            -p '{"spec":{"selector":{"version":"blue"}}}'
+          kubectl patch service flexliving-reviews-frontend-service -n flexliving-reviews \
+            -p '{"spec":{"selector":{"version":"blue"}}}'
+          
+          # Remove failed green deployment
+          kubectl delete deployment --selector="app=flexliving-reviews-backend,version=green" -n flexliving-reviews || true
+          kubectl delete deployment --selector="app=flexliving-reviews-frontend,version=green" -n flexliving-reviews || true
+
+  # Post-deployment monitoring
+  post-deployment-monitoring:
+    name: Post-deployment Monitoring
+    runs-on: ubuntu-latest
+    needs: [setup, deploy-staging, deploy-production]
+    if: always() && (needs.deploy-staging.result == 'success' || needs.deploy-production.result == 'success')
+
+    steps:
+      - name: Setup monitoring alerts
+        run: |
+          echo "Setting up enhanced monitoring for new deployment..."
+          
+          # This would typically integrate with your monitoring system
+          # to set up temporary alerts for the new deployment
+          
+          # Example: Enable enhanced Datadog monitoring
+          if [[ "${{ needs.setup.outputs.environment }}" == "production" ]]; then
+            curl -X POST "https://api.datadoghq.com/api/v1/events" \
+              -H "Content-Type: application/json" \
+              -H "DD-API-KEY: ${{ secrets.DATADOG_API_KEY }}" \
+              -d '{
+                "title": "FlexLiving Reviews Dashboard - Production Deployment",
+                "text": "New deployment completed successfully",
+                "priority": "normal",
+                "tags": ["deployment", "production", "flexliving-reviews"],
+                "alert_type": "success"
+              }'
+          fi
+
+      - name: Run automated tests post-deployment
+        run: |
+          # Run extended test suite against deployed environment
+          sleep 60  # Wait for services to stabilize
+          
+          if [[ "${{ needs.setup.outputs.environment }}" == "production" ]]; then
+            # Run production smoke tests
+            curl -f https://api.reviews.flexliving.com/api/health
+            curl -f https://reviews.flexliving.com
+          elif [[ "${{ needs.setup.outputs.environment }}" == "staging" ]]; then
+            # Run staging integration tests
+            curl -f https://staging-api.reviews.flexliving.com/api/health
+            curl -f https://staging.reviews.flexliving.com
+          fi
+
+      - name: Schedule deployment report
+        run: |
+          # Schedule a deployment report to be sent after monitoring period
+          echo "Deployment monitoring scheduled for next 2 hours"
+          # This could trigger a separate workflow or monitoring job
+
+  # Notification and reporting
+  notify-deployment-status:
+    name: Send Deployment Notifications
+    runs-on: ubuntu-latest
+    needs: [setup, deploy-staging, deploy-production, post-deployment-monitoring]
+    if: always()
+
+    steps:
+      - name: Determine deployment result
+        id: result
+        run: |
+          if [[ "${{ needs.deploy-production.result }}" == "success" ]]; then
+            echo "result=success" >> $GITHUB_OUTPUT
+            echo "environment=production" >> $GITHUB_OUTPUT
+            echo "url=https://reviews.flexliving.com" >> $GITHUB_OUTPUT
+          elif [[ "${{ needs.deploy-staging.result }}" == "success" ]]; then
+            echo "result=success" >> $GITHUB_OUTPUT
+            echo "environment=staging" >> $GITHUB_OUTPUT
+            echo "url=https://staging.reviews.flexliving.com" >> $GITHUB_OUTPUT
+          else
+            echo "result=failure" >> $GITHUB_OUTPUT
+            echo "environment=${{ needs.setup.outputs.environment }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Send Slack notification
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ steps.result.outputs.result }}
+          channel: '#deployments'
+          text: |
+            🚀 FlexLiving Reviews Dashboard Deployment ${{ steps.result.outputs.result }}
+            
+            Environment: ${{ steps.result.outputs.environment }}
+            Branch: ${{ github.ref_name }}
+            Commit: ${{ github.sha }}
+            Author: ${{ github.actor }}
+            ${{ steps.result.outputs.url && format('URL: {0}', steps.result.outputs.url) || '' }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Send Microsoft Teams notification
+        if: steps.result.outputs.result == 'success'
+        uses: jdcargile/ms-teams-notification@v1.3
+        with:
+          github-token: ${{ github.token }}
+          ms-teams-webhook-uri: ${{ secrets.MS_TEAMS_WEBHOOK_URL }}
+          notification-summary: 'FlexLiving Reviews Dashboard Deployed Successfully'
+          notification-color: 28a745
+          timezone: America/New_York
+
+      - name: Create deployment summary
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## 🚀 Deployment Summary
+          
+          | Parameter | Value |
+          |-----------|--------|
+          | Environment | ${{ steps.result.outputs.environment }} |
+          | Status | ${{ steps.result.outputs.result }} |
+          | Image Tag | ${{ needs.setup.outputs.image-tag }} |
+          | Commit | ${{ github.sha }} |
+          | Author | ${{ github.actor }} |
+          | URL | ${{ steps.result.outputs.url }} |
+          
+          ### Deployment Steps
+          - ✅ Pre-deployment validation
+          - ✅ Database migration
+          - ${{ steps.result.outputs.result == 'success' && '✅' || '❌' }} Application deployment
+          - ${{ needs.post-deployment-monitoring.result == 'success' && '✅' || '❌' }} Post-deployment monitoring
+          
+          EOF

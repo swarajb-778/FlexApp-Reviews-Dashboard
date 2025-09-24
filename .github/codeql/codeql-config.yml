@@ -1,0 +1,77 @@
+name: "FlexLiving Reviews Dashboard CodeQL Configuration"
+
+# Disable default queries to avoid duplication
+disable-default-queries: false
+
+# Additional query packs to include
+packs:
+  - security-extended
+  - security-and-quality
+
+# Custom queries
+queries:
+  - uses: security-extended
+  - uses: security-and-quality
+  - uses: codeql/javascript-queries
+
+# Path filters for analysis
+paths:
+  - "backend/src"
+  - "frontend"
+
+# Ignore paths for analysis
+paths-ignore:
+  - "backend/node_modules"
+  - "frontend/node_modules"
+  - "backend/dist"
+  - "frontend/.next"
+  - "**/*.min.js"
+  - "**/*.test.ts"
+  - "**/*.test.js"
+  - "**/*.spec.ts"
+  - "**/*.spec.js"
+  - "backend/prisma/migrations"
+  - "**/__tests__"
+
+# Query filters
+query-filters:
+  # Focus on security-related issues
+  - include:
+      id: js/sql-injection
+  - include:
+      id: js/xss
+  - include:
+      id: js/code-injection
+  - include:
+      id: js/unsafe-deserialization
+  - include:
+      id: js/prototype-pollution
+  - include:
+      id: js/weak-cryptographic-algorithm
+  - include:
+      id: js/hardcoded-credentials
+  - include:
+      id: js/clear-text-logging
+  - include:
+      id: js/missing-rate-limiting
+  - include:
+      id: js/incomplete-hostname-regexp
+  - include:
+      id: js/open-url-redirect
+  - include:
+      id: js/path-injection
+  - include:
+      id: js/file-access-to-http
+  - exclude:
+      id: js/unused-local-variable
+  - exclude:
+      id: js/debugger-statement
+
+# Language-specific settings
+languages:
+  javascript:
+    # Include TypeScript files
+    typescript: true
+  typescript:
+    # Additional TypeScript-specific configuration
+    strict: true

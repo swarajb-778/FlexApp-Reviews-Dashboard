@@ -1,0 +1,341 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flexliving-reviews-backend
+  namespace: flexliving-reviews
+  labels:
+    app: flexliving-reviews-backend
+    component: backend
+    tier: application
+    app.kubernetes.io/name: flexliving-reviews-dashboard
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/managed-by: kubectl
+  annotations:
+    deployment.kubernetes.io/revision: "1"
+    description: "FlexLiving Reviews Dashboard Backend API"
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: flexliving-reviews-backend
+      component: backend
+  template:
+    metadata:
+      labels:
+        app: flexliving-reviews-backend
+        component: backend
+        tier: application
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3001"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: flexliving-reviews-sa
+      
+      # Security Context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      
+      # Init Container for database migrations
+      initContainers:
+      - name: db-migration
+        image: ghcr.io/${{ github.repository }}-backend:BACKEND_IMAGE_TAG
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "Running database migrations..."
+          npx prisma generate
+          npx prisma migrate deploy
+          echo "Database migrations completed"
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: flexliving-reviews-secrets
+              key: database-url
+        - name: NODE_ENV
+          value: "production"
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          readOnlyRootFilesystem: false
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+      
+      containers:
+      - name: backend
+        image: ghcr.io/${{ github.repository }}-backend:BACKEND_IMAGE_TAG
+        imagePullPolicy: Always
+        
+        ports:
+        - name: http
+          containerPort: 3001
+          protocol: TCP
+        
+        # Environment Variables
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: PORT
+          value: "3001"
+        - name: LOG_LEVEL
+          valueFrom:
+            configMapKeyRef:
+              name: flexliving-reviews-config
+              key: log-level
+              optional: true
+        
+        # Secrets
+        envFrom:
+        - secretRef:
+            name: flexliving-reviews-secrets
+        - configMapRef:
+            name: flexliving-reviews-config
+        
+        # Health Checks
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          successThreshold: 1
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+        
+        # Startup Probe for slow starting containers
+        startupProbe:
+          httpGet:
+            path: /api/health
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 30
+        
+        # Resource Requirements
+        resources:
+          requests:
+            cpu: 250m
+            memory: 512Mi
+            ephemeral-storage: 1Gi
+          limits:
+            cpu: 1
+            memory: 1Gi
+            ephemeral-storage: 2Gi
+        
+        # Security Context
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1001
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+        
+        # Volume Mounts
+        volumeMounts:
+        - name: tmp-volume
+          mountPath: /tmp
+        - name: logs-volume
+          mountPath: /app/logs
+        - name: cache-volume
+          mountPath: /app/.cache
+      
+      # Volumes
+      volumes:
+      - name: tmp-volume
+        emptyDir:
+          sizeLimit: 100Mi
+      - name: logs-volume
+        emptyDir:
+          sizeLimit: 500Mi
+      - name: cache-volume
+        emptyDir:
+          sizeLimit: 200Mi
+      
+      # Node Selection and Scheduling
+      nodeSelector:
+        kubernetes.io/arch: amd64
+        node-type: application
+      
+      # Tolerations
+      tolerations:
+      - key: "node.kubernetes.io/unschedulable"
+        operator: "Equal"
+        value: "true"
+        effect: "NoSchedule"
+        tolerationSeconds: 300
+      
+      # Affinity Rules
+      affinity:
+        # Prefer different nodes for replicas
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                  - flexliving-reviews-backend
+              topologyKey: kubernetes.io/hostname
+        
+        # Prefer nodes with SSD storage
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 50
+            preference:
+              matchExpressions:
+              - key: storage-type
+                operator: In
+                values:
+                - ssd
+      
+      # DNS Policy
+      dnsPolicy: ClusterFirst
+      
+      # Restart Policy
+      restartPolicy: Always
+      
+      # Termination Grace Period
+      terminationGracePeriodSeconds: 30
+      
+      # Image Pull Secrets (if using private registry)
+      imagePullSecrets:
+      - name: flexliving-registry-secret
+---
+# Horizontal Pod Autoscaler
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: flexliving-reviews-backend-hpa
+  namespace: flexliving-reviews
+  labels:
+    app: flexliving-reviews-backend
+    component: backend
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: flexliving-reviews-backend
+  minReplicas: 3
+  maxReplicas: 10
+  
+  metrics:
+  # CPU utilization
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  
+  # Memory utilization
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+      - type: Pods
+        value: 1
+        periodSeconds: 60
+      selectPolicy: Min
+    
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 30
+      - type: Pods
+        value: 2
+        periodSeconds: 30
+      selectPolicy: Max
+---
+# Service for Backend
+apiVersion: v1
+kind: Service
+metadata:
+  name: flexliving-reviews-backend-service
+  namespace: flexliving-reviews
+  labels:
+    app: flexliving-reviews-backend
+    component: backend
+    app.kubernetes.io/name: flexliving-reviews-dashboard
+    app.kubernetes.io/component: backend
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "80"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 80
+    targetPort: http
+    protocol: TCP
+  selector:
+    app: flexliving-reviews-backend
+    component: backend
+  sessionAffinity: None
+---
+# Pod Disruption Budget
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: flexliving-reviews-backend-pdb
+  namespace: flexliving-reviews
+  labels:
+    app: flexliving-reviews-backend
+    component: backend
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: flexliving-reviews-backend
+      component: backend

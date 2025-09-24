@@ -9,6 +9,11 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 
 // Import routes
 import healthRoutes from './routes/health';
+import hostawayRoutes from './routes/hostaway';
+import reviewsRoutes from './routes/reviews';
+import reviewApprovalRoutes from './routes/reviewApproval';
+import listingsRoutes from './routes/listings';
+import metricsRoutes from './routes/metrics';
 
 /**
  * Create and configure Express application
@@ -35,6 +40,13 @@ const createApp = (): Application => {
       preload: true,
     },
   }));
+
+  // Set X-XSS-Protection header explicitly (Helmet v6+ no longer sets this by default)
+  // Note: This header is deprecated and ignored by modern browsers, but kept for test compatibility
+  app.use((_req, res, next) => {
+    res.setHeader('X-XSS-Protection', '0');
+    next();
+  });
 
   // CORS configuration
   const corsOptions = {
@@ -134,8 +146,14 @@ const createApp = (): Application => {
   // Health check routes (should be first to avoid unnecessary processing)
   app.use('/', healthRoutes);
 
-  // API routes will be added here in future phases
-  // app.use('/api/v1', apiRoutes);
+  // Metrics routes (for Prometheus scraping)
+  app.use('/metrics', metricsRoutes);
+
+  // API routes
+  app.use('/api/reviews/hostaway', hostawayRoutes);
+  app.use('/api/reviews', reviewApprovalRoutes);
+  app.use('/api/reviews', reviewsRoutes);
+  app.use('/api/listings', listingsRoutes);
 
   // 404 handler for unmatched routes
   app.use(notFoundHandler);

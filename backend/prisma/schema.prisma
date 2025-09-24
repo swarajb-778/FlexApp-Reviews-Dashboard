@@ -46,6 +46,7 @@ model Review {
   // Relations
   listing         Listing           @relation(fields: [listingId], references: [id], onDelete: Cascade)
   reviewCategories ReviewCategory[]
+  auditLogs       ReviewAuditLog[]
 
   // Indexes for performance
   @@index([listingId])
@@ -77,6 +78,29 @@ model ReviewCategory {
   @@map("review_categories")
 }
 
+model ReviewAuditLog {
+  id         String         @id @default(cuid())
+  reviewId   String         @map("review_id")
+  action     AuditAction
+  userId     String?        @map("user_id") // Optional user context
+  previousValue Json?       @map("previous_value") // Before state
+  newValue   Json?         @map("new_value") // After state
+  ipAddress  String?       @map("ip_address")
+  userAgent  String?       @map("user_agent") @db.Text
+  metadata   Json?         // Additional context
+  timestamp  DateTime      @default(now())
+
+  // Relations
+  review Review @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  // Indexes for performance
+  @@index([reviewId])
+  @@index([action])
+  @@index([userId])
+  @@index([timestamp])
+  @@map("review_audit_logs")
+}
+
 // Enums
 enum ReviewType {
   GUEST_REVIEW
@@ -105,4 +129,13 @@ enum Category {
   OVERALL
   
   @@map("category")
+}
+
+enum AuditAction {
+  APPROVED
+  UNAPPROVED
+  UPDATED
+  CREATED
+  
+  @@map("audit_action")
 }

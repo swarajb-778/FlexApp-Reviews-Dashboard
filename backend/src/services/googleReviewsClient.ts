@@ -297,8 +297,10 @@ export class GoogleReviewsClient {
 
       return response.data.results;
     } catch (error) {
+      const message = (error as any)?.response?.data?.error_message || (error as Error).message;
       logger.error('Google Places search failed', { 
-        error: error instanceof Error ? error.message : String(error),
+        error: message,
+        status: (error as any)?.response?.status,
         query,
         location,
         radius 
@@ -313,7 +315,7 @@ export class GoogleReviewsClient {
         throw new Error('Google Places API request invalid. Check query parameters.');
       }
       
-      throw new Error(`Failed to search Google Places: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(`Failed to search Google Places: ${message || 'Unknown error'}`);
     }
   }
 
@@ -346,8 +348,9 @@ export class GoogleReviewsClient {
 
       return response.data.result;
     } catch (error) {
-      logger.error('Failed to fetch place details', error);
-      throw new Error(`Failed to get place details: ${error.message}`);
+      const message = (error as any)?.response?.data?.error_message || (error as Error).message;
+      logger.error('Failed to fetch place details', { error: message, status: (error as any)?.response?.status });
+      throw new Error(`Failed to get place details: ${message}`);
     }
   }
 

@@ -307,6 +307,7 @@ export function ReviewCard({
           review.approved === false && 'ring-1 ring-red-200 dark:ring-red-800'
         )}
         style={flexLivingComponents.reviewCard}
+        role="article"
       >
         {/* Status indicator strip */}
         <div 
@@ -572,7 +573,7 @@ export function ReviewCard({
                     </Button>
                   )}
                   
-                  {review.approved !== true && (
+              {review.approved !== true && (
                     <Button
                       size="sm"
                       onClick={() => handleAction('approve')}
@@ -583,6 +584,7 @@ export function ReviewCard({
                         'hover:from-green-700 hover:to-green-800',
                         'text-white shadow-sm hover:shadow-md'
                       )}
+                  aria-label="approve review"
                     >
                       {isLoading ? (
                         <Clock className="h-4 w-4 mr-1 animate-spin" />
@@ -604,6 +606,7 @@ export function ReviewCard({
                         'border-red-200 text-red-700 hover:bg-red-50',
                         'dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/20'
                       )}
+                      aria-label="reject review"
                     >
                       <XCircle className="h-4 w-4 mr-1" />
                       Reject
@@ -614,7 +617,7 @@ export function ReviewCard({
                   {showAdvancedActions && review.approved === null && (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm" className="shrink-0">
+                        <Button variant="outline" size="sm" className="shrink-0" aria-label="more actions">
                           <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
@@ -686,6 +689,9 @@ export function ReviewCard({
           </AlertDialogContent>
         </AlertDialog>
       </Card>
+      {isLoading && (
+        <div role="status" aria-live="polite" className="sr-only">Processing</div>
+      )}
     </motion.div>
   );
 }

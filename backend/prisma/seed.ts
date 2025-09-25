@@ -4,7 +4,7 @@ const prisma = new PrismaClient();
 
 const sampleListings = [
   {
-    hostawayListingId: 'hostaway_12345',
+    hostawayListingId: '1234',
     name: '2B N1 A - 29 Shoreditch Heights',
     slug: '2b-n1-a-29-shoreditch-heights',
   },
@@ -22,7 +22,7 @@ const sampleListings = [
 
 const sampleReviews = [
   {
-    hostawayReviewId: 'review_001',
+    hostawayReviewId: '7453',
     reviewType: ReviewType.GUEST_REVIEW,
     channel: Channel.AIRBNB,
     rating: 4.8,
@@ -55,6 +55,35 @@ const sampleReviews = [
       { category: Category.VALUE, rating: 4.0 },
       { category: Category.OVERALL, rating: 4.8 },
     ],
+  },
+  // Edge case: missing rating but categories present (will compute)
+  {
+    hostawayReviewId: '7454',
+    reviewType: ReviewType.GUEST_REVIEW,
+    channel: Channel.AIRBNB,
+    rating: 8.5, // Computed from categories: (8.0 + 9.0) / 2
+    publicReview: 'Great place, rating missing but categories present.',
+    guestName: 'Edge Case Missing Rating',
+    submittedAt: new Date('2021-02-03T08:15:00Z'),
+    approved: true,
+    rawJson: { platform: 'airbnb', reviewId: 'airbnb_rev_7454' },
+    categories: [
+      { category: Category.CLEANLINESS, rating: 8.0 },
+      { category: Category.COMMUNICATION, rating: 9.0 },
+    ],
+  },
+  // Edge case: empty categories but has direct rating
+  {
+    hostawayReviewId: '7455',
+    reviewType: ReviewType.GUEST_REVIEW,
+    channel: Channel.BOOKING_COM,
+    rating: 7.5,
+    publicReview: 'Had a decent stay. No categories provided.',
+    guestName: 'Empty Categories',
+    submittedAt: new Date('2021-03-05T19:30:00Z'),
+    approved: true,
+    rawJson: { platform: 'booking.com', reviewId: 'booking_rev_7455' },
+    categories: [],
   },
   {
     hostawayReviewId: 'review_002',

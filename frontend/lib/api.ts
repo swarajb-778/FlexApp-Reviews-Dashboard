@@ -193,10 +193,18 @@ class ApiClient {
   async getApprovedReviews(listingId?: string): Promise<PaginatedResponse<Review>> {
     return this.getReviews({ 
       approved: true, 
-      listing_id: listingId,
+      listingId: listingId,
       sort_by: 'submission_date',
       sort_order: 'desc'
     })
+  }
+
+  /**
+   * Fetch Hostaway reviews in requirement "simple" format for compatibility checks
+   */
+  async getHostawaySimple(params?: Record<string, any>): Promise<{ status: 'ok'; data: any[] }> {
+    const query = { format: 'simple', page: 1, limit: 20, ...(params || {}) }
+    return this.get(API_ENDPOINTS.REVIEWS_HOSTAWAY, { params: query })
   }
 
   // ===== LISTING ENDPOINTS =====

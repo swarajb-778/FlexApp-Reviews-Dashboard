@@ -149,6 +149,10 @@ export class GoogleReviewsClient {
   private lastRequestTime = 0;
 
   constructor(config: GoogleReviewsClientConfig) {
+    if (!config.placesApiKey) {
+      throw new Error('Google Places API key is required to initialize GoogleReviewsClient. Please provide a valid placesApiKey in the configuration.');
+    }
+
     this.config = {
       timeout: 10000,
       retryAttempts: 3,
@@ -297,8 +301,10 @@ export class GoogleReviewsClient {
 
       return response.data.results;
     } catch (error) {
+      const message = (error as any)?.response?.data?.error_message || (error as Error).message;
       logger.error('Google Places search failed', { 
-        error: error instanceof Error ? error.message : String(error),
+        error: message,
+        status: (error as any)?.response?.status,
         query,
         location,
         radius 
@@ -313,7 +319,7 @@ export class GoogleReviewsClient {
         throw new Error('Google Places API request invalid. Check query parameters.');
       }
       
-      throw new Error(`Failed to search Google Places: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(`Failed to search Google Places: ${message || 'Unknown error'}`);
     }
   }
 
@@ -346,8 +352,9 @@ export class GoogleReviewsClient {
 
       return response.data.result;
     } catch (error) {
-      logger.error('Failed to fetch place details', error);
-      throw new Error(`Failed to get place details: ${error.message}`);
+      const message = (error as any)?.response?.data?.error_message || (error as Error).message;
+      logger.error('Failed to fetch place details', { error: message, status: (error as any)?.response?.status });
+      throw new Error(`Failed to get place details: ${message}`);
     }
   }
 
@@ -547,13 +554,28 @@ export class GoogleReviewsClient {
   }
 }
 
-// Export singleton instance
-export const googleReviewsClient = new GoogleReviewsClient({
-  placesApiKey: process.env.GOOGLE_PLACES_API_KEY!,
-  businessProfileCredentials: process.env.GOOGLE_BUSINESS_PROFILE_CREDENTIALS 
-    ? JSON.parse(process.env.GOOGLE_BUSINESS_PROFILE_CREDENTIALS)
-    : undefined,
-  timeout: parseInt(process.env.GOOGLE_API_TIMEOUT || '10000'),
-  retryAttempts: parseInt(process.env.GOOGLE_API_RETRY_ATTEMPTS || '3'),
-  rateLimitDelay: parseInt(process.env.GOOGLE_API_RATE_LIMIT_DELAY || '1000')
-});
+// Lazy singleton initialization
+let googleReviewsClientInstance: GoogleReviewsClient | null = null;
+
+export const getGoogleReviewsClient = (): GoogleReviewsClient => {
+  if (!googleReviewsClientInstance) {
+    if (!process.env.GOOGLE_PLACES_API_KEY) {
+      throw new Error('Google Places API key not found in environment variables. Set GOOGLE_PLACES_API_KEY to use Google Reviews functionality.');
+    }
+
+    googleReviewsClientInstance = new GoogleReviewsClient({
+      placesApiKey: process.env.GOOGLE_PLACES_API_KEY,
+      businessProfileCredentials: process.env.GOOGLE_BUSINESS_PROFILE_CREDENTIALS 
+        ? JSON.parse(process.env.GOOGLE_BUSINESS_PROFILE_CREDENTIALS)
+        : undefined,
+      timeout: parseInt(process.env.GOOGLE_API_TIMEOUT || '10000'),
+      retryAttempts: parseInt(process.env.GOOGLE_API_RETRY_ATTEMPTS || '3'),
+      rateLimitDelay: parseInt(process.env.GOOGLE_API_RATE_LIMIT_DELAY || '1000')
+    });
+  }
+  
+  return googleReviewsClientInstance;
+};
+
+// Export singleton instance for backward compatibility - will throw if API key is missing
+export const googleReviewsClient = process.env.GOOGLE_PLACES_API_KEY ? getGoogleReviewsClient() : null;

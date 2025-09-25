@@ -44,6 +44,7 @@ jest.mock('@/lib/analytics', () => ({
 jest.mock('@/lib/api', () => ({
   approveReview: jest.fn(),
   bulkApproveReviews: jest.fn(),
+  getHostawaySimple: jest.fn().mockResolvedValue({ status: 'ok', data: [] }),
 }));
 
 jest.mock('@/lib/use-toast', () => ({

@@ -431,3 +431,6 @@ export const flexLivingComponents = {
 }
 
 export default flexLivingTheme
+
+// Legacy/alias export for components expecting FlexLivingColors
+export const FlexLivingColors = flexLivingTheme.colors

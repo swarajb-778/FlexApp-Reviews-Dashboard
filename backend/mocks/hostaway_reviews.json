@@ -481,6 +481,78 @@
       "language": "en",
       "source": "airbnb_api"
     }
+    ,
+    {
+      "id": 7453,
+      "listingId": 1234,
+      "listingName": "2B N1 A - 29 Shoreditch Heights",
+      "guestName": "Shane Finkelstein",
+      "comment": "Shane and family are wonderful! Would definitely host again :)",
+      "reviewCategories": [
+        { "id": 1001, "name": "cleanliness", "rating": 10, "max_rating": 10 },
+        { "id": 1002, "name": "communication", "rating": 10, "max_rating": 10 },
+        { "id": 1003, "name": "respect_house_rules", "rating": 10, "max_rating": 10 }
+      ],
+      "createdAt": "2020-08-21 22:45:14",
+      "updatedAt": "2020-08-21 22:45:14",
+      "reviewType": "host_review",
+      "channel": "hostaway",
+      "approved": false,
+      "language": "en",
+      "source": "hostaway_mock"
+    },
+    {
+      "id": 7454,
+      "listingId": 1234,
+      "listingName": "2B N1 A - 29 Shoreditch Heights",
+      "guestName": "Edge Case Missing Rating",
+      "comment": "Great place, rating missing but categories present.",
+      "reviewCategories": [
+        { "id": 2001, "name": "cleanliness", "rating": 8, "max_rating": 10 },
+        { "id": 2002, "name": "communication", "rating": 9, "max_rating": 10 }
+      ],
+      "createdAt": "2021/02/03 08:15:00",
+      "updatedAt": "2021/02/03 08:15:00",
+      "reviewType": "guest_review",
+      "channel": "airbnb",
+      "approved": true,
+      "language": "en",
+      "source": "airbnb_api"
+    },
+    {
+      "id": 7455,
+      "listingId": 1234,
+      "listingName": "2B N1 A - 29 Shoreditch Heights",
+      "guestName": "Empty Categories",
+      "comment": "Had a decent stay. No categories provided.",
+      "rating": 7.5,
+      "reviewCategories": [],
+      "createdAt": "03-05-2021 19:30:00",
+      "updatedAt": "03-05-2021 19:30:00",
+      "reviewType": "guest_review",
+      "channel": "booking.com",
+      "approved": true,
+      "language": "en",
+      "source": "booking_com_api"
+    },
+    {
+      "id": 7456,
+      "listingId": 1234,
+      "listingName": "2B N1 A - 29 Shoreditch Heights",
+      "guestName": "Weird Date Format",
+      "comment": "Dates come in a weird format.",
+      "rating": 9.0,
+      "reviewCategories": [
+        { "id": 3001, "name": "cleanliness", "rating": 9, "max_rating": 10 }
+      ],
+      "createdAt": "Aug 12, 2021 10:05 PM",
+      "updatedAt": "Aug 12, 2021 10:05 PM",
+      "reviewType": "guest_review",
+      "channel": "direct",
+      "approved": false,
+      "language": "en",
+      "source": "direct_booking"
+    }
   ],
   "count": 10,
   "limit": 20,

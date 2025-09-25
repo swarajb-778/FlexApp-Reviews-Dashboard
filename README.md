@@ -45,6 +45,8 @@ A comprehensive, production-ready reviews management system for FlexLiving prope
 - **Role-based Access**: Granular permissions and access control
 - **Data Encryption**: End-to-end encryption for sensitive data
 - **Audit Logging**: Complete audit trail for all operations
+- **Secure Secret Management**: Environment variables with proper .gitignore exclusion
+- **OAuth2 Integration**: Secure token-based API authentication with automatic refresh
 
 ## 🏗️ Architecture
 
@@ -125,8 +127,8 @@ graph TB
 
 2. **Run automated setup**
    ```bash
-   chmod +x scripts/setup.sh
-   ./scripts/setup.sh
+   chmod +x scripts/setup-dev.sh
+   ./scripts/setup-dev.sh
    ```
 
 3. **Configure environment variables**
@@ -140,7 +142,7 @@ graph TB
 
 4. **Start development servers**
    ```bash
-   ./start-dev.sh
+   docker-compose up -d
    ```
 
 5. **Access the application**
@@ -238,6 +240,34 @@ function ReviewsList() {
 
 ## 🔧 Configuration
 
+### 🔐 Security Setup
+
+**⚠️ IMPORTANT: Never commit `.env` files with real credentials to version control.**
+
+1. **Environment Files**: 
+   - Copy `backend/.env.example` to `backend/.env`
+   - Replace placeholder values with your actual credentials
+   - The `.env` file is automatically ignored by git
+
+2. **API Credentials**:
+   - Get your Hostaway Account ID and API Key from the Hostaway dashboard
+   - **OAuth2 Authentication**: The system uses OAuth2 client credentials flow:
+     - `HOSTAWAY_ACCOUNT_ID` serves as the OAuth2 `client_id`
+     - `HOSTAWAY_API_KEY` serves as the OAuth2 `client_secret`
+     - Access tokens are automatically managed (fetched, cached, and refreshed)
+   - For production, use a secure secret management system
+   - Rotate API keys regularly for security
+
+3. **Verification**:
+   ```bash
+   # Ensure .env is not tracked
+   git status
+   # Should not show backend/.env
+   
+   # Test application loads environment variables
+   npm run dev
+   ```
+
 ### Environment Variables
 
 #### Backend Configuration
@@ -329,8 +359,8 @@ cd backend && npm run test
 # Frontend tests
 cd frontend && npm run test
 
-# Integration tests
-./scripts/run-tests.sh
+# API smoke tests
+./scripts/test-api.sh
 
 # Performance tests
 cd backend && npm run test:performance
@@ -355,6 +385,8 @@ open coverage/lcov-report/index.html
 2. Set up environment: `postman/environments/development.postman_environment.json`
 3. Configure your API keys and tokens
 4. Run the complete test suite
+5. Try the mandatory Hostaway endpoint (simple format)
+   - Request: "GET /api/reviews/hostaway (simple format)"
 
 ## 📊 Monitoring & Observability
 

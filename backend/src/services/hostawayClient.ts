@@ -16,6 +16,19 @@ import {
   MockDataConfig
 } from '../types/reviews';
 
+// OAuth2 token management
+interface OAuth2Token {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  scope: string;
+}
+
+interface TokenState {
+  token: string;
+  expiresAtMs: number;
+}
+
 // Default Hostaway configuration
 const DEFAULT_HOSTAWAY_CONFIG: HostawayConfig = {
   accountId: process.env.HOSTAWAY_ACCOUNT || process.env.HOSTAWAY_ACCOUNT_ID || '',
@@ -23,11 +36,16 @@ const DEFAULT_HOSTAWAY_CONFIG: HostawayConfig = {
   baseUrl: process.env.HOSTAWAY_BASE_URL || process.env.HOSTAWAY_API_URL || 'https://api.hostaway.com/v1',
   timeout: parseInt(process.env.HOSTAWAY_TIMEOUT || '30000'),
   retries: parseInt(process.env.HOSTAWAY_RETRIES || '3'),
-  mockMode: process.env.NODE_ENV === 'development' || process.env.HOSTAWAY_MOCK_MODE === 'true'
+  mockMode: (process.env.HOSTAWAY_MOCK_MODE === 'true') || (!process.env.HOSTAWAY_API_KEY && process.env.NODE_ENV === 'development'),
+  authScope: process.env.HOSTAWAY_AUTH_SCOPE || 'general'
 };
 
+// Token management state
+let currentToken: TokenState | null = null;
+const TOKEN_REFRESH_BUFFER_MS = 60 * 1000; // Refresh token 60 seconds before expiry
+
 // Mock data configuration
-const MOCK_FILE = path.resolve(process.cwd(), 'backend/mocks/hostaway_reviews.json');
+const MOCK_FILE = path.resolve(__dirname, '../../mocks/hostaway_reviews.json');
 const MOCK_DATA_CONFIG: MockDataConfig = {
   enabled: true,
   filePath: MOCK_FILE,
@@ -60,7 +78,87 @@ let apiMetrics: ApiMetrics = {
 };
 
 /**
- * Initializes the Hostaway API client with authentication and configuration
+ * Fetches OAuth2 access token using client credentials flow
+ */
+async function getAccessToken(): Promise<TokenState> {
+  try {
+    const tokenUrl = `${DEFAULT_HOSTAWAY_CONFIG.baseUrl}/accessTokens`;
+    const requestBody = new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: DEFAULT_HOSTAWAY_CONFIG.accountId,
+      client_secret: DEFAULT_HOSTAWAY_CONFIG.apiKey,
+      scope: DEFAULT_HOSTAWAY_CONFIG.authScope || 'general'
+    });
+
+    logger.info('Requesting OAuth2 access token from Hostaway', {
+      url: tokenUrl,
+      client_id: DEFAULT_HOSTAWAY_CONFIG.accountId,
+      scope: DEFAULT_HOSTAWAY_CONFIG.authScope
+    });
+
+    const response = await axios.post<OAuth2Token>(tokenUrl, requestBody.toString(), {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Accept': 'application/json'
+      },
+      timeout: DEFAULT_HOSTAWAY_CONFIG.timeout
+    });
+
+    if (response.status !== 200 || !response.data.access_token) {
+      throw new Error(`Failed to obtain access token: HTTP ${response.status}`);
+    }
+
+    const token = response.data;
+    const expiresAtMs = Date.now() + (token.expires_in * 1000) - TOKEN_REFRESH_BUFFER_MS;
+
+    logger.info('Successfully obtained OAuth2 access token', {
+      token_type: token.token_type,
+      expires_in: token.expires_in,
+      scope: token.scope,
+      expiresAt: new Date(expiresAtMs).toISOString()
+    });
+
+    return {
+      token: token.access_token,
+      expiresAtMs
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    logger.error('Failed to obtain OAuth2 access token', {
+      error: errorMessage,
+      client_id: DEFAULT_HOSTAWAY_CONFIG.accountId,
+      scope: DEFAULT_HOSTAWAY_CONFIG.authScope
+    });
+    throw new Error(`OAuth2 token request failed: ${errorMessage}`);
+  }
+}
+
+/**
+ * Ensures a valid access token is available, fetching or refreshing as needed
+ */
+async function ensureValidToken(): Promise<string> {
+  const now = Date.now();
+  
+  // Check if current token is still valid
+  if (currentToken && now < currentToken.expiresAtMs) {
+    return currentToken.token;
+  }
+
+  // Token is expired or doesn't exist, get a new one
+  if (currentToken) {
+    logger.info('Access token expired, refreshing', {
+      expiredAt: new Date(currentToken.expiresAtMs).toISOString()
+    });
+  } else {
+    logger.info('No access token available, fetching initial token');
+  }
+
+  currentToken = await getAccessToken();
+  return currentToken.token;
+}
+
+/**
+ * Initializes the Hostaway API client with OAuth2 authentication and configuration
  */
 export function initializeHostawayClient(config: Partial<HostawayConfig> = {}): void {
   const clientConfig = { ...DEFAULT_HOSTAWAY_CONFIG, ...config };
@@ -70,20 +168,42 @@ export function initializeHostawayClient(config: Partial<HostawayConfig> = {}): 
     timeout: clientConfig.timeout,
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${clientConfig.apiKey}`,
-      'X-Account-Id': clientConfig.accountId
+      'Accept': 'application/json'
     },
     validateStatus: (status) => status < 500 // Don't throw on 4xx errors
   });
 
-  // Request interceptor for logging and metrics
+  // Basic config validation
+  if (!clientConfig.mockMode) {
+    if (!clientConfig.apiKey || clientConfig.apiKey.length < 20) {
+      logger.warn('Hostaway API key appears invalid or missing. Falling back to mock when used.');
+    }
+    if (!clientConfig.accountId) {
+      logger.warn('Hostaway account ID missing. Ensure HOSTAWAY_ACCOUNT_ID is set.');
+    }
+  }
+
+  // Request interceptor for OAuth2 token management and metrics
   hostawayClient.interceptors.request.use(
-    (config) => {
+    async (config) => {
       config.metadata = { startTime: Date.now() };
+      
+      // Add OAuth2 token if not in mock mode and not getting a token
+      if (!clientConfig.mockMode && !config.url?.includes('/accessTokens')) {
+        try {
+          const token = await ensureValidToken();
+          config.headers.Authorization = `Bearer ${token}`;
+        } catch (error) {
+          logger.error('Failed to set OAuth2 token on request', { error: error.message });
+          // Continue with request - may fallback to mock if enabled
+        }
+      }
+      
       logger.debug('Hostaway API request started', {
         method: config.method?.toUpperCase(),
         url: config.url,
-        params: config.params
+        params: config.params,
+        hasAuth: !!config.headers.Authorization
       });
       return config;
     },
@@ -93,7 +213,7 @@ export function initializeHostawayClient(config: Partial<HostawayConfig> = {}): 
     }
   );
 
-  // Response interceptor for logging and metrics
+  // Response interceptor for OAuth2 token refresh and metrics
   hostawayClient.interceptors.response.use(
     (response) => {
       const duration = Date.now() - (response.config.metadata?.startTime || 0);
@@ -107,7 +227,7 @@ export function initializeHostawayClient(config: Partial<HostawayConfig> = {}): 
       
       return response;
     },
-    (error) => {
+    async (error) => {
       const duration = Date.now() - (error.config?.metadata?.startTime || 0);
       updateMetrics(false, duration, error.message);
       
@@ -115,8 +235,53 @@ export function initializeHostawayClient(config: Partial<HostawayConfig> = {}): 
         status: error.response?.status,
         statusText: error.response?.statusText,
         duration,
-        error: error.message
+        error: error.message,
+        url: error.config?.url
       });
+      
+      const status = error.response?.status;
+      
+      // Handle 401 Unauthorized - attempt token refresh and retry once
+      if (status === 401 && !error.config?.__tokenRefreshed && !error.config?.url?.includes('/accessTokens')) {
+        logger.info('Received 401, attempting token refresh and retry', {
+          url: error.config?.url
+        });
+        
+        try {
+          // Force token refresh by clearing current token
+          currentToken = null;
+          const newToken = await ensureValidToken();
+          
+          // Mark this request as having been token-refreshed to prevent infinite loops
+          error.config.__tokenRefreshed = true;
+          error.config.headers.Authorization = `Bearer ${newToken}`;
+          
+          logger.info('Token refreshed, retrying request', {
+            url: error.config?.url
+          });
+          
+          return hostawayClient!.request(error.config);
+        } catch (refreshError) {
+          logger.error('Token refresh failed', {
+            error: refreshError instanceof Error ? refreshError.message : String(refreshError)
+          });
+          // Continue with original error handling below
+        }
+      }
+      
+      // Apply simple retry if network or timeout (but not for 401 after refresh attempt)
+      const isNetworkError = !error.response;
+      if (isNetworkError || status === 408) {
+        error.config.__retryCount = (error.config.__retryCount || 0) + 1;
+        if (error.config.__retryCount <= DEFAULT_HOSTAWAY_CONFIG.retries) {
+          const backoff = Math.pow(2, error.config.__retryCount) * 250;
+          logger.info('Retrying request due to network/timeout error', {
+            attempt: error.config.__retryCount,
+            backoffMs: backoff
+          });
+          return new Promise((resolve) => setTimeout(resolve, backoff)).then(() => hostawayClient!.request(error.config));
+        }
+      }
       
       return Promise.reject(error);
     }
@@ -125,7 +290,9 @@ export function initializeHostawayClient(config: Partial<HostawayConfig> = {}): 
   logger.info('Hostaway API client initialized', {
     baseUrl: clientConfig.baseUrl,
     timeout: clientConfig.timeout,
-    mockMode: clientConfig.mockMode
+    mockMode: clientConfig.mockMode,
+    authScope: clientConfig.authScope,
+    oauthEnabled: !clientConfig.mockMode && !!(clientConfig.accountId && clientConfig.apiKey)
   });
 }
 
@@ -497,6 +664,8 @@ export async function hostawayHealthCheck(): Promise<{
     api_configured: boolean;
     mock_mode: boolean;
     mock_data_available: boolean;
+    oauth_token_valid: boolean;
+    token_expires_at?: string;
     last_request?: Date;
     metrics: ReturnType<typeof getHostawayApiMetrics>;
   };
@@ -513,6 +682,18 @@ export async function hostawayHealthCheck(): Promise<{
       mockDataAvailable = false;
     }
 
+    // Check OAuth2 token status
+    let oauthTokenValid = false;
+    let tokenExpiresAt: string | undefined;
+    
+    if (!DEFAULT_HOSTAWAY_CONFIG.mockMode && apiConfigured) {
+      const now = Date.now();
+      oauthTokenValid = !!(currentToken && now < currentToken.expiresAtMs);
+      if (currentToken) {
+        tokenExpiresAt = new Date(currentToken.expiresAtMs).toISOString();
+      }
+    }
+
     const metrics = getHostawayApiMetrics();
     const healthy = (apiConfigured && !DEFAULT_HOSTAWAY_CONFIG.mockMode) || 
                    (DEFAULT_HOSTAWAY_CONFIG.mockMode && mockDataAvailable);
@@ -523,6 +704,8 @@ export async function hostawayHealthCheck(): Promise<{
         api_configured: apiConfigured,
         mock_mode: DEFAULT_HOSTAWAY_CONFIG.mockMode,
         mock_data_available: mockDataAvailable,
+        oauth_token_valid: oauthTokenValid,
+        token_expires_at: tokenExpiresAt,
         last_request: metrics.lastRequestAt,
         metrics
       }

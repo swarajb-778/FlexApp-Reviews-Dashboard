@@ -116,6 +116,7 @@ export async function normalizeReview(
     const normalizedReview: NormalizedReview = {
       id: rawReview.id,
       listingId: rawReview.listingId,
+      listingName: rawReview.listingName,
       guestName: sanitizeGuestName(rawReview.guestName || 'Anonymous Guest'),
       comment: sanitizeComment(rawReview.comment),
       rating,
@@ -394,6 +395,7 @@ function createPartialNormalizedReview(
     return {
       id: rawReview.id || 0,
       listingId: rawReview.listingId || 0,
+      listingName: rawReview.listingName,
       guestName: sanitizeGuestName(rawReview.guestName || 'Anonymous Guest'),
       comment: sanitizeComment(rawReview.comment || ''),
       rating: options.defaultRating || 5.0,

@@ -44,12 +44,13 @@ jobs:
         working-directory: ./backend
         run: |
           npm run lint
-          npm run lint:types
+          npm run format:check
 
       - name: Lint frontend
         working-directory: ./frontend
         run: |
           npm run lint
+          npm run format:check
           npm run type-check
 
       - name: Check formatting
@@ -125,8 +126,7 @@ jobs:
           HOSTAWAY_API_KEY: test_hostaway_key
           GOOGLE_PLACES_API_KEY: test_google_key
         run: |
-          npm run test:unit -- --coverage --coverageDirectory=coverage
-          npm run test:integration -- --coverage --coverageDirectory=coverage-integration
+          npm run test -- --coverage --watchAll=false
 
       - name: Upload backend coverage to Codecov
         uses: codecov/codecov-action@v4

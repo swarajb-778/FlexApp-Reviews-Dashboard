@@ -38,6 +38,9 @@ import {
   Bell,
   Activity,
   Globe,
+  Clock,
+  XCircle,
+  Code2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';

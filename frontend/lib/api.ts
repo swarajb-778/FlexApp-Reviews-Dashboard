@@ -193,7 +193,7 @@ class ApiClient {
   async getApprovedReviews(listingId?: string): Promise<PaginatedResponse<Review>> {
     return this.getReviews({ 
       approved: true, 
-      listing_id: listingId,
+      listingId: listingId,
       sort_by: 'submission_date',
       sort_order: 'desc'
     })

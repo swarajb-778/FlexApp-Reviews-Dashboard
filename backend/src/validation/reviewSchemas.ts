@@ -50,6 +50,7 @@ const optionalRatingSchema = ratingSchema.optional();
 // Query parameters validation
 export const reviewsQueryParamsSchema = z.object({
   listingId: z.coerce.number().int().positive().optional(),
+  listing_id: z.coerce.number().int().positive().optional(), // Support both naming conventions
   from: flexibleDateSchema.optional(),
   to: flexibleDateSchema.optional(),
   channel: reviewChannelSchema.optional(),
@@ -246,7 +247,8 @@ export const hostawayConfigSchema = z.object({
   baseUrl: z.string().url(),
   timeout: z.number().int().min(1000).max(60000), // 1s to 60s
   retries: z.number().int().min(0).max(5),
-  mockMode: z.boolean()
+  mockMode: z.boolean(),
+  authScope: z.string().optional()
 });
 
 export const cacheConfigSchema = z.object({
@@ -435,7 +437,8 @@ export const bulkUpdateReviewsSchema = z.object({
   response: z.string().max(5000).optional()
 });
 
-export const reviewManagementQuerySchema = z.object({
+// Base schema without refinements for use with pick()
+const reviewManagementQueryBaseSchema = z.object({
   listingId: z.coerce.number().int().positive().optional(),
   approved: z.coerce.boolean().optional(),
   channel: reviewChannelSchema.optional(),
@@ -451,7 +454,10 @@ export const reviewManagementQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
   sortBy: reviewSortSchema.default('submittedAt'),
   sortOrder: z.enum(['asc', 'desc']).default('desc')
-}).refine(
+});
+
+// Full schema with refinements
+export const reviewManagementQuerySchema = reviewManagementQueryBaseSchema.refine(
   (data) => {
     if (data.from && data.to) {
       return new Date(data.from) <= new Date(data.to);
@@ -474,6 +480,9 @@ export const reviewManagementQuerySchema = z.object({
     path: ['minRating']
   }
 );
+
+// Export base schema for use with pick()
+export const reviewManagementQueryBaseSchema_exported = reviewManagementQueryBaseSchema;
 
 // Additional utility validation functions
 export const validateReviewUpdate = (data: unknown) => {

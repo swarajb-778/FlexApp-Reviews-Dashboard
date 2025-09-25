@@ -61,6 +61,7 @@ const sampleReviews = [
     hostawayReviewId: '7454',
     reviewType: ReviewType.GUEST_REVIEW,
     channel: Channel.AIRBNB,
+    rating: 8.5, // Computed from categories: (8.0 + 9.0) / 2
     publicReview: 'Great place, rating missing but categories present.',
     guestName: 'Edge Case Missing Rating',
     submittedAt: new Date('2021-02-03T08:15:00Z'),

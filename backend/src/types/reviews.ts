@@ -20,6 +20,7 @@ export interface HostawayReviewCategory {
 export interface HostawayReviewRaw {
   id: number;
   listingId: number;
+  listingName?: string;
   guestName: string;
   comment: string;
   rating?: number;
@@ -57,6 +58,7 @@ export interface NormalizedReviewCategory {
 export interface NormalizedReview {
   id: number;
   listingId: number;
+  listingName?: string;
   guestName: string;
   comment: string;
   rating: number;

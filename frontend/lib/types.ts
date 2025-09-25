@@ -130,7 +130,8 @@ export interface ReviewsQueryParams {
   approved?: boolean
   rating?: number
   channel?: string
-  listing_id?: string
+  listingId?: string | number
+  listing_id?: string // Legacy support - will be normalized to listingId
   guest_name?: string
   date_from?: string
   date_to?: string

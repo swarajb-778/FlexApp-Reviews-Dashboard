@@ -59,6 +59,7 @@ services:
       HOST: 0.0.0.0
       LOG_LEVEL: debug
       CORS_ORIGIN: http://localhost:3000
+      HOSTAWAY_MOCK_MODE: "false"
     ports:
       - "3001:3001"
     volumes:

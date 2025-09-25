@@ -77,16 +77,19 @@ router.get('/', async (req: Request, res: Response) => {
 
     const queryParams = queryValidation.data as ReviewsQueryParams;
 
+    // Check for explicit cache bypass
+    const bypassCache = req.query.cache === 'false';
+    
     // Generate cache key based on query parameters
     const cacheKey = generateCacheKey('hostaway', queryParams);
     
-    logger.debug('Generated cache key', { requestId, cacheKey });
+    logger.debug('Generated cache key', { requestId, cacheKey, bypassCache });
 
-    // Check cache first
-    let cachedResponse = await getCachedReviewsResponse(cacheKey);
+    // Check cache first (unless bypassed)
+    let cachedResponse = bypassCache ? null : await getCachedReviewsResponse(cacheKey);
     
     const needsRefresh = cachedResponse ? await shouldRefreshCache(cacheKey) : true;
-    if (cachedResponse && !needsRefresh) {
+    if (cachedResponse && !needsRefresh && !bypassCache) {
       logger.info('Serving cached response', {
         requestId,
         cacheKey,
@@ -232,11 +235,16 @@ router.get('/', async (req: Request, res: Response) => {
       };
     }
 
-    // Cache the response (TTL with jitter will be applied automatically)
-    const cacheSuccess = await cacheReviewsResponse(cacheKey, apiResponse);
+    // Cache the response (TTL with jitter will be applied automatically) unless bypassed
+    let cacheSuccess = true;
+    if (!bypassCache) {
+      cacheSuccess = await cacheReviewsResponse(cacheKey, apiResponse);
 
-    if (!cacheSuccess) {
-      logger.warn('Failed to cache response', { requestId, cacheKey });
+      if (!cacheSuccess) {
+        logger.warn('Failed to cache response', { requestId, cacheKey });
+      }
+    } else {
+      logger.info('Cache bypass requested, skipping cache write', { requestId, cacheKey });
     }
 
     // Log successful request
@@ -255,7 +263,7 @@ router.get('/', async (req: Request, res: Response) => {
     // Set response headers
     res.set('X-Request-ID', requestId);
     res.set('X-Response-Time', `${responseTime}ms`);
-    res.set('X-Cache-Status', 'MISS');
+    res.set('X-Cache-Status', bypassCache ? 'BYPASS' : 'MISS');
     res.set('X-Source', source);
 
     res.json(apiResponse);
@@ -485,7 +493,7 @@ function mapToRequirementSimpleFormat(review: NormalizedReview) {
   return {
     id: review.id,
     hostawayId: review.id,
-    listingName: (review as any)?.rawJson?.listingName || null,
+    listingName: review.listingName || (review as any)?.rawJson?.listingName || null,
     listingId: review.listingId,
     type,
     channel: 'hostaway',

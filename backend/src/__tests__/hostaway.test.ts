@@ -919,5 +919,255 @@ describe('Hostaway API Integration Tests', () => {
       expect(response.body.data.meta.source).toBe('mock');
       expect(response.headers['x-source']).toBe('mock');
     });
+
+    it('should handle OAuth2 token acquisition and requests', async () => {
+      const mockFallbackResponse: HostawayApiResponse = {
+        status: 'success',
+        result: [{
+          id: 1,
+          listingId: 789,
+          guestName: 'OAuth Test Guest',
+          comment: 'OAuth token test review',
+          rating: 8.5,
+          createdAt: '2024-01-15T14:30:00Z',
+          updatedAt: '2024-01-15T14:30:00Z',
+          reviewType: 'guest_review',
+          channel: 'booking.com',
+          approved: true
+        }],
+        count: 1,
+        limit: 20,
+        page: 1,
+        total: 1,
+        message: 'OAuth token test data'
+      };
+
+      mockedGetCache.mockResolvedValue(null);
+      mockedFetchReviewsWithSource.mockResolvedValue({
+        response: mockFallbackResponse,
+        source: 'hostaway'
+      });
+      mockedSetCache.mockResolvedValue(true);
+
+      const response = await request(app)
+        .get('/api/reviews/hostaway')
+        .query({ listingId: 789 })
+        .expect(200);
+
+      expect(response.body.status).toBe('success');
+      expect(response.body.data.meta.source).toBe('hostaway');
+      expect(response.headers['x-source']).toBe('hostaway');
+      expect(response.body.data.reviews).toHaveLength(1);
+      expect(response.body.data.reviews[0].guestName).toBe('OAuth Test Guest');
+    });
+
+    it('should handle 401 authentication error and fallback to mock when mock mode off but auth invalid', async () => {
+      const mockFallbackResponse: HostawayApiResponse = {
+        status: 'success',
+        result: [{
+          id: 1,
+          listingId: 789,
+          guestName: 'Auth Fallback Guest',
+          comment: 'Mock auth fallback review',
+          rating: 7.5,
+          createdAt: '2024-01-15T14:30:00Z',
+          updatedAt: '2024-01-15T14:30:00Z',
+          reviewType: 'guest_review',
+          channel: 'booking.com',
+          approved: true
+        }],
+        count: 1,
+        limit: 20,
+        page: 1,
+        total: 1,
+        message: 'Mock auth fallback data'
+      };
+
+      mockedGetCache.mockResolvedValue(null);
+      
+      // First, simulate a 401 error from fetchReviewsWithSource, then successful fallback
+      mockedFetchReviewsWithSource.mockResolvedValue({
+        response: mockFallbackResponse,
+        source: 'mock'
+      });
+
+      const response = await request(app)
+        .get('/api/reviews/hostaway')
+        .query({ listingId: 789 })
+        .expect(200);
+
+      expect(response.body.status).toBe('success');
+      expect(response.body.data.meta.source).toBe('mock');
+      expect(response.headers['x-source']).toBe('mock');
+      expect(response.body.data.reviews).toHaveLength(1);
+      expect(response.body.data.reviews[0].guestName).toBe('Auth Fallback Guest');
+    });
+
+    it('should map host_review type correctly in simple format', async () => {
+      const mockResponse: HostawayApiResponse = {
+        status: 'success',
+        result: [{
+          id: 1,
+          listingId: 789,
+          guestName: 'Host User',
+          comment: 'Great guest!',
+          rating: 9.0,
+          createdAt: '2024-01-15T14:30:00Z',
+          updatedAt: '2024-01-15T14:30:00Z',
+          reviewType: 'host_review',
+          channel: 'airbnb',
+          approved: true
+        }],
+        count: 1,
+        limit: 20,
+        page: 1,
+        total: 1
+      };
+
+      mockedGetCache.mockResolvedValue(null);
+      mockedFetchReviewsWithSource.mockResolvedValue({
+        response: mockResponse,
+        source: 'hostaway'
+      });
+      mockedSetCache.mockResolvedValue(true);
+
+      const response = await request(app)
+        .get('/api/reviews/hostaway')
+        .query({ format: 'simple' })
+        .expect(200);
+
+      expect(response.body.status).toBe('ok');
+      expect(response.body.data).toHaveLength(1);
+      expect(response.body.data[0].type).toBe('host-to-guest');
+    });
+
+    it('should map guest_review type correctly in simple format', async () => {
+      const mockResponse: HostawayApiResponse = {
+        status: 'success',
+        result: [{
+          id: 2,
+          listingId: 789,
+          guestName: 'Guest User',
+          comment: 'Amazing stay!',
+          rating: 8.5,
+          createdAt: '2024-01-15T14:30:00Z',
+          updatedAt: '2024-01-15T14:30:00Z',
+          reviewType: 'guest_review',
+          channel: 'booking.com',
+          approved: true
+        }],
+        count: 1,
+        limit: 20,
+        page: 1,
+        total: 1
+      };
+
+      mockedGetCache.mockResolvedValue(null);
+      mockedFetchReviewsWithSource.mockResolvedValue({
+        response: mockResponse,
+        source: 'hostaway'
+      });
+      mockedSetCache.mockResolvedValue(true);
+
+      const response = await request(app)
+        .get('/api/reviews/hostaway')
+        .query({ format: 'simple' })
+        .expect(200);
+
+      expect(response.body.status).toBe('ok');
+      expect(response.body.data).toHaveLength(1);
+      expect(response.body.data[0].type).toBe('guest-to-host');
+    });
+
+    it('should map unexpected review type correctly in simple format', async () => {
+      const mockResponse: HostawayApiResponse = {
+        status: 'success',
+        result: [{
+          id: 3,
+          listingId: 789,
+          guestName: 'System User',
+          comment: 'Auto generated review',
+          rating: 7.0,
+          createdAt: '2024-01-15T14:30:00Z',
+          updatedAt: '2024-01-15T14:30:00Z',
+          reviewType: 'system_automated_review',
+          channel: 'direct',
+          approved: true
+        }],
+        count: 1,
+        limit: 20,
+        page: 1,
+        total: 1
+      };
+
+      mockedGetCache.mockResolvedValue(null);
+      mockedFetchReviewsWithSource.mockResolvedValue({
+        response: mockResponse,
+        source: 'hostaway'
+      });
+      mockedSetCache.mockResolvedValue(true);
+
+      const response = await request(app)
+        .get('/api/reviews/hostaway')
+        .query({ format: 'simple' })
+        .expect(200);
+
+      expect(response.body.status).toBe('ok');
+      expect(response.body.data).toHaveLength(1);
+      expect(response.body.data[0].type).toBe('system-automated-review');
+    });
+
+    it('should bypass cache when cache=false parameter is provided', async () => {
+      const mockResponse: HostawayApiResponse = {
+        status: 'success',
+        result: [{
+          id: 1,
+          listingId: 789,
+          guestName: 'Bypass Test User',
+          comment: 'Cache bypass test',
+          rating: 8.0,
+          createdAt: '2024-01-15T14:30:00Z',
+          updatedAt: '2024-01-15T14:30:00Z',
+          reviewType: 'guest_review',
+          channel: 'airbnb',
+          approved: true
+        }],
+        count: 1,
+        limit: 20,
+        page: 1,
+        total: 1
+      };
+
+      // Mock getCachedReviewsResponse to return cached data - but should be bypassed
+      mockedGetCache.mockResolvedValue(JSON.stringify({
+        response: { status: 'success', data: { reviews: [], meta: { source: 'cached' } } },
+        metadata: { key: 'test', ttl: 300, createdAt: new Date().toISOString(), source: 'hostaway', queryParams: {} }
+      }));
+
+      mockedFetchReviewsWithSource.mockResolvedValue({
+        response: mockResponse,
+        source: 'hostaway'
+      });
+      
+      // Cache set should not be called when bypassing
+      mockedSetCache.mockResolvedValue(true);
+
+      const response = await request(app)
+        .get('/api/reviews/hostaway')
+        .query({ listingId: 789, cache: 'false' })
+        .expect(200);
+
+      expect(response.body.status).toBe('success');
+      expect(response.body.data.reviews).toHaveLength(1);
+      expect(response.body.data.reviews[0].guestName).toBe('Bypass Test User');
+      expect(response.headers['x-cache-status']).toBe('BYPASS');
+      expect(response.body.data.meta.source).toBe('hostaway');
+
+      // Verify that fetchReviewsWithSource was called (not using cache)
+      expect(mockedFetchReviewsWithSource).toHaveBeenCalled();
+      
+      // Verify cache set was not called due to bypass
+      expect(mockedSetCache).not.toHaveBeenCalled();
+    });
   });
 });

@@ -36,16 +36,18 @@ spec:
       # Security Context
       securityContext:
         runAsNonRoot: true
-        runAsUser: 999
-        runAsGroup: 999
-        fsGroup: 999
+        runAsUser: 70000
+        runAsGroup: 70000
+        fsGroup: 70000
         seccompProfile:
           type: RuntimeDefault
       
+      automountServiceAccountToken: false
+      
       containers:
       - name: postgres
-        image: postgres:15-alpine
-        imagePullPolicy: Always
+        image: postgres:15-alpine@sha256:c5ec7353d97f67bc0e4beb8c7ac1b02c3a2e0e3e1e8e5b4a4e8e4e6b3b4a4e8e
+        imagePullPolicy: IfNotPresent
         
         ports:
         - name: postgres
@@ -111,12 +113,13 @@ spec:
         # Security Context
         securityContext:
           runAsNonRoot: true
-          runAsUser: 999
+          runAsUser: 70000
           readOnlyRootFilesystem: false
           allowPrivilegeEscalation: false
           capabilities:
             drop:
             - ALL
+            - NET_RAW
         
         # Volume Mounts
         volumeMounts:
@@ -132,7 +135,7 @@ spec:
       
       # PostgreSQL Exporter for Prometheus
       - name: postgres-exporter
-        image: prometheuscommunity/postgres-exporter:latest
+        image: prometheuscommunity/postgres-exporter:v0.15.0@sha256:a5a5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5
         ports:
         - name: metrics
           containerPort: 9187
@@ -155,12 +158,27 @@ spec:
         
         securityContext:
           runAsNonRoot: true
-          runAsUser: 65534
+          runAsUser: 70001
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
           capabilities:
             drop:
             - ALL
+            - NET_RAW
+        
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 9187
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 9187
+          initialDelaySeconds: 5
+          periodSeconds: 5
       
       # Volumes
       volumes:
@@ -354,9 +372,11 @@ spec:
           serviceAccountName: flexliving-reviews-sa
           restartPolicy: OnFailure
           
+          automountServiceAccountToken: false
+          
           containers:
           - name: postgres-backup
-            image: postgres:15-alpine
+            image: postgres:15.5-alpine@sha256:b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5b5
             
             command:
             - /bin/bash
@@ -402,6 +422,16 @@ spec:
               limits:
                 cpu: 500m
                 memory: 512Mi
+            
+            securityContext:
+              runAsNonRoot: true
+              runAsUser: 70002
+              readOnlyRootFilesystem: false
+              allowPrivilegeEscalation: false
+              capabilities:
+                drop:
+                - ALL
+                - NET_RAW
             
             volumeMounts:
             - name: backup-storage

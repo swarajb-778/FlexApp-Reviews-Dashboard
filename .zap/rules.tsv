@@ -1,0 +1,44 @@
+# ZAP Scanning Rules
+# This file contains custom rules for OWASP ZAP scanning
+# Format: RULE_ID	THRESHOLD	[IGNORE/WARN/FAIL]
+#
+# Common Rule IDs:
+# 10011 - Cookie Without Secure Flag
+# 10015 - Re-examine Cache-control Directives
+# 10017 - Cross-Domain JavaScript Source File Inclusion
+# 10019 - Content-Type Header Missing
+# 10020 - X-Frame-Options Header Not Set
+# 10021 - X-Content-Type-Options Header Missing
+# 10023 - Information Disclosure - Debug Error Messages
+# 10027 - Information Disclosure - Suspicious Comments
+# 10032 - Viewstate Scanner
+# 10038 - Content Security Policy (CSP) Header Not Set
+# 10040 - Secure Pages Include Mixed Content
+# 10054 - Cookie Without SameSite Attribute
+# 10055 - CSP Scanner: Wildcard Directive
+# 10056 - X-Debug-Token Information Leak
+# 10094 - Base64 Disclosure
+# 10095 - Backup File Disclosure
+# 10096 - Timestamp Disclosure
+# 10097 - Hash Disclosure
+# 10098 - Cross-Domain Misconfiguration
+# 10105 - Weak Authentication Method
+# 10109 - Modern Web Application
+# 10202 - Absence of Anti-CSRF Tokens
+
+# Ignore rules for development/staging environments
+10027	IGNORE	(Information Disclosure - Suspicious Comments)
+10096	IGNORE	(Timestamp Disclosure)
+10097	IGNORE	(Hash Disclosure)
+
+# Warn on security headers
+10020	WARN	(X-Frame-Options Header Not Set)
+10021	WARN	(X-Content-Type-Options Header Missing)
+10038	WARN	(Content Security Policy Header Not Set)
+10054	WARN	(Cookie Without SameSite Attribute)
+
+# Fail on critical security issues
+10011	FAIL	(Cookie Without Secure Flag)
+10202	FAIL	(Absence of Anti-CSRF Tokens)
+10105	FAIL	(Weak Authentication Method)
+

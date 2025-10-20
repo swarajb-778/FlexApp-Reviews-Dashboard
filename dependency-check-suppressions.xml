@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+    <!-- 
+        This file contains suppressions for OWASP Dependency Check
+        Add CVE suppressions here for false positives or accepted risks
+        
+        Example suppression:
+        <suppress>
+            <notes><![CDATA[
+            Explanation why this CVE is suppressed
+            ]]></notes>
+            <cve>CVE-2021-12345</cve>
+        </suppress>
+    -->
+    
+    <!-- Suppress development dependencies -->
+    <suppress>
+        <notes><![CDATA[
+        Development dependencies are not included in production builds
+        ]]></notes>
+        <filePath regex="true">.*node_modules/.*</filePath>
+        <cpe>cpe:/a:.*</cpe>
+    </suppress>
+    
+    <!-- Suppress test dependencies -->
+    <suppress>
+        <notes><![CDATA[
+        Test dependencies are only used during development
+        ]]></notes>
+        <filePath regex="true">.*(jest|mocha|chai|testing-library).*</filePath>
+        <cpe>cpe:/a:.*</cpe>
+    </suppress>
+</suppressions>
+

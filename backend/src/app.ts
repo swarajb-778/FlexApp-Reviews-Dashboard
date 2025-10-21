@@ -147,13 +147,13 @@ const createApp = (): Application => {
   app.use('/', healthRoutes);
 
   // Metrics routes (for Prometheus scraping)
-  // app.use('/metrics', metricsRoutes);
+  app.use('/metrics', metricsRoutes);
 
-  // API routes - temporarily disabled for debugging
-  // app.use('/api/reviews/hostaway', hostawayRoutes);
-  // app.use('/api/reviews', reviewApprovalRoutes);
-  // app.use('/api/reviews', reviewsRoutes);
-  // app.use('/api/listings', listingsRoutes);
+  // API routes
+  app.use('/api/reviews/hostaway', hostawayRoutes);
+  app.use('/api/reviews', reviewApprovalRoutes);
+  app.use('/api/reviews', reviewsRoutes);
+  app.use('/api/listings', listingsRoutes);
 
   // 404 handler for unmatched routes
   app.use(notFoundHandler);

@@ -5,14 +5,13 @@ disable-default-queries: false
 
 # Additional query packs to include
 packs:
-  - security-extended
-  - security-and-quality
+  - codeql/javascript-queries:security-extended
+  - codeql/javascript-queries:security-and-quality
 
 # Custom queries
 queries:
   - uses: security-extended
   - uses: security-and-quality
-  - uses: codeql/javascript-queries
 
 # Path filters for analysis
 paths:
